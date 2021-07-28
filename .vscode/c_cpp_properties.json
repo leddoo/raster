@@ -1,0 +1,13 @@
+{
+    "configurations": [
+        {
+            "name": "Win32",
+            "includePath": [
+                "C:/VulkanSDK/1.2.182.0/Include",
+                "common/include",
+                "${default}"
+            ]
+        }
+    ],
+    "version": 4
+}
