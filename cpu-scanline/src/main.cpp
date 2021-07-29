@@ -21,9 +21,9 @@ union V2 {
     struct { T x; T y; };
     T values[2];
 
-    V2()         : x(0),  y(0)  {}
-    V2(T xy)     : x(xy), y(xy) {}
-    V2(T x, T y) : x(x),  y(y)  {}
+    V2() : V2(T(0)) {}
+    V2(T all) : V2(all, all) {}
+    V2(T x, T y) : x(x), y(y)  {}
 
     template <typename U>
     explicit V2(const V2<U>& other) : x(T(other.x)), y(T(other.y)) {}
@@ -291,6 +291,7 @@ Uint find_derivative_roots(const Generic_Bezier& curve, Uint32 axis, Float32& t0
     return root_count;
 }
 
+
 template <typename T, typename F>
 void insertion_sort(Slice<T> slice, F leq) {
     for(auto i : Range<Uint>(1, slice.count)) {
@@ -303,6 +304,77 @@ void insertion_sort(Slice<T> slice, F leq) {
 }
 
 
+template <typename T>
+struct M2 {
+    T values[2][2];
+
+    M2() : M2(T(0)) {}
+    M2(T all) : M2(all, all, all, all) {}
+    M2(T m00, T m01, T m10, T m11) : values{{m00, m01}, {m10, m11}} {}
+
+    static M2<T> from_rows(V2f r0, V2f r1)    { return M2(r0.x, r0.y, r1.x, r1.y); }
+    static M2<T> from_columns(V2f c0, V2f c1) { return M2(c0.x, c1.x, c0.y, c1.y); }
+};
+
+using M2f = M2<Float32>;
+
+template <typename T>
+V2<T> operator*(M2<T> m, V2<T> v) {
+    return V2<T>(
+        m.values[0][0]*v.x + m.values[0][1]*v.y,
+        m.values[1][0]*v.x + m.values[1][1]*v.y
+    );
+}
+
+
+Bool invert_matrix2(M2f matrix, M2f* inverse) {
+    auto m00 = matrix.values[0][0];
+    auto m01 = matrix.values[0][1];
+    auto m10 = matrix.values[1][0];
+    auto m11 = matrix.values[1][1];
+
+    auto determinant = m00*m11 - m01*m10;
+    if(abs(determinant) < tolerance) {
+        return false;
+    }
+
+    if(inverse != nullptr) {
+        auto s = 1.0f/determinant;
+        inverse->values[0][0] =  s*m11;
+        inverse->values[0][1] = -s*m01;
+        inverse->values[1][0] = -s*m10;
+        inverse->values[1][1] =  s*m00;
+    }
+
+    return true;
+}
+
+
+Bool in_interval(Float32 x, Float32 a, Float32 b) {
+    return (x > a - tolerance) && (x < b + tolerance);
+}
+
+
+Bool find_segments_intersection(V2f a0, V2f a1, V2f b0, V2f b1, V2f* ts) {
+    auto matrix = M2f::from_columns(a1 - a0, b0 - b1);
+    auto inverse = M2f();
+    if(invert_matrix2(matrix, &inverse) == false) {
+        return false;
+    }
+
+    auto _ts = inverse*(b0 - a0);
+    if(in_interval(_ts.x, 0, 1) && in_interval(_ts.y, 0, 1)) {
+        if(ts != nullptr) {
+            *ts = _ts;
+        }
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+
+
 int main() {
 
     auto path = List<Generic_Bezier> {
@@ -311,7 +383,6 @@ int main() {
         generic_line({30.f, 10.f}, {37.5f, 15.f}),
         generic_cubic({37.5f, 15.f}, {28.f, 30.f}, {10.f, 22.f}, {10.f, 10.f}),
     };
-
 
 
     // Find monotone segments. (Ranges where the derivative's sign is constant -> between the roots.)
@@ -347,13 +418,22 @@ int main() {
 
 
 
-    // Find boundary fragments by rasterizing the curves.
-
     struct Boundary_Fragment {
         V2s     position;
-        Float32 t0, t1;
+        Float32 t0;
         Uint32  curve_index;
+
+        Sint32 in_winding;   // winding at (0, 0.5).
+        Bool   winding_sign; // curve goes up?
+        Bool   out_mask;     // ((0, 0.5), (1, 0.5)) hits curve?
+        Bool   sample_mask;  // ((0, 0.5), (0.5, 0.5)) hits curve?
+
+        Sint32 x() const { return position.x; }
+        Sint32 y() const { return position.y; }
     };
+
+    // Find boundary fragments by rasterizing the curves.
+    // Set position, t0, curve_index. (zero init rest)
 
     auto fragments = List<Boundary_Fragment>();
     for(auto curve_index : range_of(path)) {
@@ -368,8 +448,6 @@ int main() {
             cut_cursor += 1;
         }
 
-        printf("curve.\n");
-
         // Process segments.
         auto cut_t0 = 0.f;
         while(cut_t0 < 1.f) {
@@ -380,45 +458,30 @@ int main() {
                 cut_cursor += 1;
             }
 
-            printf("segment: %f %f.\n", cut_t0, cut_t1);
-
             // Rasterize segment.
 
             const auto p0 = evaluate(curve, cut_t0);
             const auto p1 = evaluate(curve, cut_t1);
 
-            const auto step = sign(p1 - p0);
-
             // these are inclusive, hence the first/last nomenclature.
             const auto first_fragment = V2s(floor(p0));
             const auto last_fragment  = V2s(floor(p1));
 
-            // fence post:
-            // (end - begin) is post_count. step_count is post_count - 1.
-            // => (last - first) is step_count.
+            const auto step = sign(p1 - p0);
             const auto step_count = abs(last_fragment - first_fragment);
 
             // each step adds a fragment plus the starting fragment.
             const auto frag_count = step_count.x + step_count.y + 1;
 
-            printf("p0: %f %f\n", p0.x, p0.y);
-            printf("p1: %f %f\n", p1.x, p1.y);
 
-            printf("step:  %f %f\n", step.x, step.y);
-            printf("first: %d %d\n", first_fragment.x, first_fragment.y);
-            printf("last:  %d %d\n", last_fragment.x, last_fragment.y);
-            printf("count: %d\n", frag_count);
-
-
-            auto fragment_cursor = first_fragment;
             auto steps_remaining = step_count;
+            auto fragment_cursor = first_fragment;
 
-            // the fragment_cursor is always in the bottom right of the fragment.
-            // `fragment_cursor + grid_offset + step` yields the next grid lines.
-            auto grid_offset = V2f(0.5f) - 0.5f*step;
+            const auto find_next_t = [&](Uint axis) -> Float32 {
+                // the fragment_cursor is always in the bottom right of the fragment.
+                // `fragment_cursor + grid_offset + step` yields the next grid lines.
+                const auto grid_offset = V2f(0.5f) - 0.5f*step;
 
-
-            auto find_next_t = [&](Uint axis) -> Float32 {
                 auto next_pos = fragment_cursor[axis] + grid_offset[axis] + step[axis];
 
                 auto t_min = 2.f;
@@ -490,62 +553,174 @@ int main() {
                 return t_min;
             };
 
-            auto next_t = V2f(2.f);
-            for(auto axis : Range<Uint>(2)) {
-                next_t[axis] = find_next_t(axis);
-            }
+            auto next_t = V2f(find_next_t(0), find_next_t(1));
 
-
-            while(true) {
-                // emit fragment.
-                //printf("fragment: %d %d\n", fragment_cursor.x, fragment_cursor.y);
-                {
-                    auto x = fragment_cursor.x;
-                    auto y = fragment_cursor.y;
-                    printf("Polygon((%d, %d), (%d, %d), (%d, %d), (%d, %d)), ",
-                                     x,  y,    x+1,y,    x+1,y+1,  x,  y+1);
-                }
-
-                if(steps_remaining.x <= 0 && steps_remaining.y <= 0) {
-                    break;
-                }
-
+            for(auto i : Range<Uint>(frag_count)) {
+                UNUSED(i);
 
                 auto min_axis = Uint(next_t[0] < next_t[1] ? 0 : 1);
+                auto step_t   = next_t[min_axis];
 
-                // take a step.
-                assert(steps_remaining[min_axis] > 0);
-                fragment_cursor[min_axis] += Sint32(step[min_axis]);
-                steps_remaining[min_axis] -= 1;
+                auto fragment = Boundary_Fragment();
+                fragment.position    = fragment_cursor;
+                fragment.t0          = cut_t0;
+                fragment.curve_index = (Uint32)curve_index;
+                fragments.push_back(fragment);
 
-                // advance time, so find_next_t does not give us previous results.
-                cut_t0 = next_t[min_axis];
+                if(steps_remaining[min_axis] > 0) {
+                    // take a step.
+                    fragment_cursor[min_axis] += Sint32(step[min_axis]);
+                    steps_remaining[min_axis] -= 1;
 
-                next_t[min_axis] = find_next_t(min_axis);
+                    // advance time, so find_next_t does not give us previous results.
+                    cut_t0 = step_t;
+
+                    next_t[min_axis] = find_next_t(min_axis);
+                }
+                else {
+                    next_t[min_axis] = 2.f;
+                }
             }
 
             cut_t0 = cut_t1;
-
-            printf("\n");
         }
-
-        printf("\n");
     }
 
 
-    /*
-        winding number computation:
-            - assume boundary fragments are sorted by y, then x.
-            - walk boundary fragments.
-            - whenever y changes, start a new line.
-            - on each line:
-                - start with current winding = 0.
-                - for each fragment:
-                    - compute winding in the center (one sample).
-                    - compute winding at right edge -> current winding -> winding at left edge of next fragment.
-                    - emit pixel for fragment.
-                    - emit span if filled and next fragment is not immidately following.
-    */
+    #if 0
+        for(auto& fragment : fragments) {
+            auto x = fragment.position.x;
+            auto y = fragment.position.y;
+            printf("Polygon((%d, %d),(%d, %d),(%d, %d),(%d, %d)), ",
+                x, y, x+1, y, x+1, y+1, x, y+1
+            );
+        }
+        printf("\n");
+
+        for(auto i : range_of(fragments)) {
+            auto t0 = fragments[i].t0;
+            auto t1 = 1.f;
+            if(i + 1 < fragments.size() && fragments[i].curve_index == fragments[i + 1].curve_index) {
+                t1 = fragments[i + 1].t0;
+            }
+            auto p0 = evaluate(path[fragments[i].curve_index], t0);
+            auto p1 = evaluate(path[fragments[i].curve_index], t1);
+            printf("Segment((%f, %f), (%f, %f)), ",
+                p0.x, p0.y, p1.x, p1.y
+            );
+        }
+        printf("\n");
+
+        for(auto i : range_of(fragments)) {
+            auto t0 = fragments[i].t0;
+            auto t1 = 1.f;
+            if(i + 1 < fragments.size() && fragments[i].curve_index == fragments[i + 1].curve_index) {
+                t1 = fragments[i + 1].t0;
+            }
+            auto p0 = evaluate(path[fragments[i].curve_index], t0);
+            auto p1 = evaluate(path[fragments[i].curve_index], t1);
+            printf("Point({%f, %f}), ", p0.x, p0.y);
+        }
+        printf("\n");
+
+        for(auto i : range_of(fragments)) {
+            auto t0 = fragments[i].t0;
+            auto t1 = 1.f;
+            if(i + 1 < fragments.size() && fragments[i].curve_index == fragments[i + 1].curve_index) {
+                t1 = fragments[i + 1].t0;
+            }
+            auto p0 = evaluate(path[fragments[i].curve_index], t0);
+            auto p1 = evaluate(path[fragments[i].curve_index], t1);
+            printf("Point({%f, %f}), ", p1.x, p1.y);
+        }
+        printf("\n");
+    #endif
+
+
+    // compute per fragment winding changes and sample mask.
+    for(auto i : range_of(fragments)) {
+        auto& fragment = fragments[i];
+
+        auto t0 = fragments[i].t0;
+        auto t1 = 1.f;
+        if(i + 1 < fragments.size() && fragment.curve_index == fragments[i + 1].curve_index) {
+            t1 = fragments[i + 1].t0;
+        }
+
+        auto p0 = evaluate(path[fragments[i].curve_index], t0);
+        auto p1 = evaluate(path[fragments[i].curve_index], t1);
+        auto c0 = p0 - V2f(fragment.position);
+        auto c1 = p1 - V2f(fragment.position);
+
+        fragment.winding_sign = (p1.y - p0.y) < 0.f;
+        fragment.out_mask     = find_segments_intersection(c0, c1, V2f(0.f, 0.5f), V2f(1.f, 0.5f), nullptr);
+        fragment.sample_mask  = find_segments_intersection(c0, c1, V2f(0.f, 0.5f), V2f(0.5f, 0.5f), nullptr);
+        p0 = p0;
+    }
+
+
+    // sort boundary fragments by y then x.
+    {
+        struct Compare_Boundary_Fragments {
+            Bool operator()(const Boundary_Fragment& a, const Boundary_Fragment& b) {
+                if(a.y() != b.y()) { return a.y() < b.y(); }
+                else               { return a.x() < b.x(); }
+            }
+        };
+        std::sort(fragments.begin(), fragments.end(), Compare_Boundary_Fragments());
+    }
+
+
+    // scan pixel lines.
+    {
+        auto scan_winding = Sint32();
+        auto scan_line    = Sint32();
+        auto scan_x       = Sint32();
+
+        auto i = Uint(0);
+        while(i < fragments.size()) {
+            auto position = fragments[i].position;
+
+            if(position.y != scan_line) {
+                assert(scan_winding == 0);
+                scan_winding = 0;
+                scan_line = fragments[i].y();
+            }
+            else if(position.x > scan_x + 1 && scan_winding != 0) {
+                // Output solid span.
+                auto x0 = scan_x;
+                auto x1 = position.x; // exclusive.
+                auto y  = scan_line;
+                printf("Polygon((%d, %d),(%d, %d),(%d, %d),(%d, %d)), ",
+                    x0, y, x1, y, x1, y+1, x0, y+1
+                );
+            }
+
+
+            // Accumulate winding changes for this pixel.
+            auto delta_out_winding    = Sint32(0);
+            auto delta_sample_winding = Sint32(0);
+            while(i < fragments.size() && fragments[i].x() == position.x) {
+                auto sign = fragments[i].winding_sign ? -1 : 1;
+                delta_out_winding    += sign*fragments[i].out_mask;
+                delta_sample_winding += sign*fragments[i].sample_mask;
+                i += 1;
+            }
+
+            auto sample_winding = scan_winding + delta_sample_winding;
+            if(sample_winding != 0) {
+                auto x = position.x;
+                auto y = position.y;
+                printf("Polygon((%d, %d),(%d, %d),(%d, %d),(%d, %d)), ",
+                    x, y, x+1, y, x+1, y+1, x, y+1
+                );
+            }
+
+            scan_winding    += delta_out_winding;
+            scan_x           = position.x + 1;
+        }
+    }
+
 
     return 0;
 }

@@ -41,6 +41,9 @@ using Float32 = float;
 using Float64 = double;
 
 
+using std::swap;
+
+
 using String = std::string;
 
 template <typename T, Uint n>
@@ -73,13 +76,6 @@ struct _Defer_Maker {
 
 #define defer auto CONCAT(_defer, __LINE__) = _Defer_Maker {} + [&]()
 
-
-template <typename T>
-void swap(T& a, T& b) {
-    auto temp = a;
-    a = b;
-    b = temp;
-}
 
 
 #define BYTE_TO_UINT_COUNT(count) (((count) + (  sizeof(Uint) - 1)) /    sizeof(Uint))
