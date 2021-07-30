@@ -5,60 +5,28 @@
 #include <exception>
 using Exception = std::exception;
 
-#pragma warning(disable: 4201) // anonymous structs.
+#include "lina.hpp"
+#include "poly.hpp"
+#include "bezier.hpp"
 
 
-template <typename T>
-T sign(T v) {
-    if     (v < T(0)) { return T(-1); }
-    else if(v > T(0)) { return T(1);  }
-    else              { return T(0);  }
+
+Bezier<Float32, 0> get_component_bezier(const Bezier<V2f, 0>& bezier, Uint axis) {
+    return Bezier<Float32, 0>{ bezier[0][axis] };
 }
 
+Bezier<Float32, 1> get_component_bezier(const Bezier<V2f, 1>& bezier, Uint axis) {
+    return Bezier<Float32, 1>{ bezier[0][axis], bezier[1][axis] };
+}
 
-template <typename T>
-union V2 {
-    struct { T x; T y; };
-    T values[2];
+Bezier<Float32, 2> get_component_bezier(const Bezier<V2f, 2>& bezier, Uint axis) {
+    return Bezier<Float32, 2>{ bezier[0][axis], bezier[1][axis], bezier[2][axis] };
+}
 
-    V2() : V2(T(0)) {}
-    V2(T all) : V2(all, all) {}
-    V2(T x, T y) : x(x), y(y)  {}
+Bezier<Float32, 3> get_component_bezier(const Bezier<V2f, 3>& bezier, Uint axis) {
+    return Bezier<Float32, 3>{ bezier[0][axis], bezier[1][axis], bezier[2][axis], bezier[3][axis] };
+}
 
-    template <typename U>
-    explicit V2(const V2<U>& other) : x(T(other.x)), y(T(other.y)) {}
-
-
-    T& operator[](Uint index) {
-        assert(index < 2);
-        return this->values[index];
-    }
-
-    const T& operator[](Uint index) const {
-        assert(index < 2);
-        return this->values[index];
-    }
-};
-
-using V2f = V2<Float32>;
-using V2s = V2<Sint32>;
-using V2u = V2<Uint32>;
-
-
-template <typename T> V2<T> operator+(V2<T> a, V2<T> b) { return { a.x + b.x, a.y + b.y }; }
-template <typename T> V2<T> operator-(V2<T> a, V2<T> b) { return { a.x - b.x, a.y - b.y }; }
-template <typename T> V2<T> operator*(V2<T> a, V2<T> b) { return { a.x * b.x, a.y * b.y }; }
-template <typename T> V2<T> operator/(V2<T> a, V2<T> b) { return { a.x / b.x, a.y / b.y }; }
-template <typename T> V2<T> operator*(T a, V2<T> b) { return { a * b.x, a * b.y }; }
-template <typename T> V2<T> operator*(V2<T> a, T b) { return { a.x * b, a.y * b }; }
-template <typename T> V2<T> operator/(V2<T> a, T b) { return { a.x / b, a.y / b }; }
-
-template <typename T> V2<T> floor(V2<T> a) { return { floor(a.x), floor(a.y) }; }
-template <typename T> V2<T> ceil(V2<T> a)  { return { ceil(a.x),  ceil(a.y)  }; }
-template <typename T> V2<T> abs(V2<T> a)   { return { abs(a.x),   abs(a.y)   }; }
-template <typename T> V2<T> sign(V2<T> a)  { return { sign(a.x),  sign(a.y)  }; }
-template <typename T> V2<T> min(V2<T> a, V2<T> b) { return { min(a.x, b.x), min(a.y, b.y) }; }
-template <typename T> V2<T> max(V2<T> a, V2<T> b) { return { max(a.x, b.x), max(a.y, b.y) }; }
 
 
 struct Generic_Bezier {
@@ -96,196 +64,60 @@ Generic_Bezier generic_cubic(V2f p0, V2f p1, V2f p2, V2f p3) {
 }
 
 
-
-Float32 bernstein_1_0(Float32 t) { auto x = 1.f - t; return x; }
-Float32 bernstein_1_1(Float32 t) {                   return t; }
-
-Float32 bernstein_2_0(Float32 t) { auto x = 1.f - t; return x*x;   }
-Float32 bernstein_2_1(Float32 t) { auto x = 1.f - t; return 2*x*t; }
-Float32 bernstein_2_2(Float32 t) {                   return t*t;   }
-
-Float32 bernstein_3_0(Float32 t) { auto x = 1.f - t; return x*x*x;   }
-Float32 bernstein_3_1(Float32 t) { auto x = 1.f - t; return 3*x*x*t; }
-Float32 bernstein_3_2(Float32 t) { auto x = 1.f - t; return 3*x*t*t; }
-Float32 bernstein_3_3(Float32 t) {                    return t*t*t;   }
-
-
-template <typename T>
-T evaluate_bezier_1(const T values[2], Float32 t) {
-    auto result =
-          bernstein_1_0(t)*values[0]
-        + bernstein_1_1(t)*values[1];
-    return result;
+Bezier<V2f, 0> get_bezier_0(const Generic_Bezier& curve) {
+    return Bezier<V2f, 0>{ curve.values[0] };
 }
 
-template <typename T>
-T evaluate_bezier_2(const T values[3], Float32 t) {
-    auto result =
-          bernstein_2_0(t)*values[0]
-        + bernstein_2_1(t)*values[1]
-        + bernstein_2_2(t)*values[2];
-    return result;
+Bezier<V2f, 1> get_bezier_1(const Generic_Bezier& curve) {
+    return Bezier<V2f, 1>{ curve.values[0], curve.values[1] };
 }
 
-template <typename T>
-T evaluate_bezier_3(const T values[4], Float32 t) {
-    auto result =
-          bernstein_3_0(t)*values[0]
-        + bernstein_3_1(t)*values[1]
-        + bernstein_3_2(t)*values[2]
-        + bernstein_3_3(t)*values[3];
-    return result;
+Bezier<V2f, 2> get_bezier_2(const Generic_Bezier& curve) {
+    return Bezier<V2f, 2>{ curve.values[0], curve.values[1], curve.values[2] };
+}
+
+Bezier<V2f, 3> get_bezier_3(const Generic_Bezier& curve) {
+    return Bezier<V2f, 3>{ curve.values[0], curve.values[1], curve.values[2], curve.values[3] };
 }
 
 
 V2f evaluate(const Generic_Bezier& curve, Float32 t) {
     switch (curve.degree) {
-        case 1: return evaluate_bezier_1(curve.values.data(), t);
-        case 2: return evaluate_bezier_2(curve.values.data(), t);
-        case 3: return evaluate_bezier_3(curve.values.data(), t);
+        case 0: { return evaluate(get_bezier_0(curve), t); } break;
+        case 1: { return evaluate(get_bezier_1(curve), t); } break;
+        case 2: { return evaluate(get_bezier_2(curve), t); } break;
+        case 3: { return evaluate(get_bezier_3(curve), t); } break;
+
         default: throw Exception();
     }
 }
-
-
-void get_poly_coefficients_1(
-    const Generic_Bezier& curve, Uint axis,
-    Float32& a1, Float32& a0
-) {
-    auto v0 = curve.values[0][axis];
-    auto v1 = curve.values[1][axis];
-    a1 = v1 - v0;
-    a0 = v0;
-}
-
-void get_poly_coefficients_2(
-    const Generic_Bezier& curve, Uint axis,
-    Float32& a2, Float32& a1, Float32& a0
-) {
-    auto v0 = curve.values[0][axis];
-    auto v1 = curve.values[1][axis];
-    auto v2 = curve.values[2][axis];
-    a2 = v0 - 2.f*v1 + v2;
-    a1 = 2.f*v1 - 2.f*v0;
-    a0 = v0;
-}
-
-void get_poly_coefficients_3(
-    const Generic_Bezier& curve, Uint axis,
-    Float32& a3, Float32& a2, Float32& a1, Float32& a0
-) {
-    auto v0 = curve.values[0][axis];
-    auto v1 = curve.values[1][axis];
-    auto v2 = curve.values[2][axis];
-    auto v3 = curve.values[3][axis];
-    a3 = -v0 + 3.f*v1 - 3.f*v2 + v3;
-    a2 = 3.f*v0 - 6.f*v1 + 3.f*v2;
-    a1 = 3.f*v1 - 3.f*v0;
-    a0 = v0;
-}
-
-void get_poly_coefficients(
-    const Generic_Bezier& curve, Uint axis,
-    Float32& a3, Float32& a2, Float32& a1, Float32& a0
-) {
-    switch (curve.degree) {
-        case 1: get_poly_coefficients_1(curve, axis, a1, a0); break;
-        case 2: get_poly_coefficients_2(curve, axis, a2, a1, a0); break;
-        case 3: get_poly_coefficients_3(curve, axis, a3, a2, a1, a0); break;
-        default: throw Exception();
-    }
-}
-
-
-Float32 evaluate_poly_1(const Float32 values[2], Float32 t) {
-    return values[1]*t + values[0];
-}
-
-Float32 evaluate_poly_2(const Float32 values[3], Float32 t) {
-    return (values[2]*t + values[1])*t + values[0];
-}
-
-Float32 evaluate_poly_3(const Float32 values[4], Float32 t) {
-    return ((values[3]*t + values[2])*t + values[1])*t + values[0];
-}
-
 
 
 constexpr Float32 tolerance = 1e-6f;
 
 
-Uint find_roots_poly_1(
-    Float32 a1, Float32 a0,
-    Float32& r0
-) {
-    if(abs(a1) < tolerance) {
-        return 0;
-    }
-    else {
-        r0 = -a0/a1;
-        return 1;
-    }
-}
-
-Uint find_roots_poly_2(
-    Float32 a2, Float32 a1, Float32 a0,
-    Float32& r0, Float32& r1
-) {
-    if(abs(a2) < tolerance) {
-        return find_roots_poly_1(a1, a0, r0);
-    }
-
-    auto p = a1/a2;
-    auto q = a0/a2;
-
-    auto x0 = -p/2.f;
-    auto discriminant = squared(p/2.f) - q;
-    if(discriminant < squared(tolerance)) {
-        r0 = x0;
-        return 1;
-    }
-    else {
-        auto delta = sqrtf(discriminant);
-        r0 = x0 - delta;
-        r1 = x0 + delta;
-        return 2;
-    }
-}
-
-
-Uint find_derivative_roots_bezier_2(Float32 v0, Float32 v1, Float32 v2, Float32& r0) {
-    return find_roots_poly_1(
-        (v0 - v1) + (v2 - v1),
-        (v1 - v0),
-        r0
-    );
-}
-
-Uint find_derivative_roots_bezier_2(const V2f values[3], Uint32 axis, Float32& r0) {
-    return find_derivative_roots_bezier_2(values[0][axis], values[1][axis], values[2][axis], r0);
-}
-
-
-Uint find_derivative_roots_bezier_3(Float32 v0, Float32 v1, Float32 v2, Float32 v3, Float32& r0, Float32& r1) {
-    return find_roots_poly_2(
-        3.f*(v1 - v2) + (v3 - v0),
-        2.f*((v0 - v1) + (v2 - v1)),
-        v1 - v0,
-        r0, r1
-    );
-}
-
-Uint find_derivative_roots_bezier_3(const V2f values[4], Uint32 axis, Float32& r0, Float32& r1) {
-    return find_derivative_roots_bezier_3(values[0][axis], values[1][axis], values[2][axis], values[3][axis], r0, r1);
-}
-
-
 Uint find_derivative_roots(const Generic_Bezier& curve, Uint32 axis, Float32& t0, Float32& t1) {
     auto root_count = Uint();
     switch(curve.degree) {
-        case 1: root_count = 0; break; // derivative is constant.
-        case 2: root_count = find_derivative_roots_bezier_2(curve.values.data(), axis, t0); break;
-        case 3: root_count = find_derivative_roots_bezier_3(curve.values.data(), axis, t0, t1); break;
+        case 0: case 1: {
+            root_count = 0;
+        } break;
+
+        case 2: {
+            auto bezier = get_bezier_2(curve);
+            auto component_bezier = get_component_bezier(bezier, axis);
+            auto derivative = derive<Float32>(component_bezier);
+            auto poly = get_poly<Float32>(derivative);
+            root_count = find_roots(poly, t0, tolerance);
+        } break;
+
+        case 3: {
+            auto bezier = get_bezier_3(curve);
+            auto component_bezier = get_component_bezier(bezier, axis);
+            auto derivative = derive<Float32>(component_bezier);
+            auto poly = get_poly<Float32>(derivative);
+            root_count = find_roots(poly, t0, t1, tolerance);
+        } break;
         default: throw Exception();
     }
     return root_count;
@@ -304,66 +136,15 @@ void insertion_sort(Slice<T> slice, F leq) {
 }
 
 
-template <typename T>
-struct M2 {
-    T values[2][2];
-
-    M2() : M2(T(0)) {}
-    M2(T all) : M2(all, all, all, all) {}
-    M2(T m00, T m01, T m10, T m11) : values{{m00, m01}, {m10, m11}} {}
-
-    static M2<T> from_rows(V2f r0, V2f r1)    { return M2(r0.x, r0.y, r1.x, r1.y); }
-    static M2<T> from_columns(V2f c0, V2f c1) { return M2(c0.x, c1.x, c0.y, c1.y); }
-};
-
-using M2f = M2<Float32>;
-
-template <typename T>
-V2<T> operator*(M2<T> m, V2<T> v) {
-    return V2<T>(
-        m.values[0][0]*v.x + m.values[0][1]*v.y,
-        m.values[1][0]*v.x + m.values[1][1]*v.y
-    );
-}
-
-
-Bool invert_matrix2(M2f matrix, M2f* inverse) {
-    auto m00 = matrix.values[0][0];
-    auto m01 = matrix.values[0][1];
-    auto m10 = matrix.values[1][0];
-    auto m11 = matrix.values[1][1];
-
-    auto determinant = m00*m11 - m01*m10;
-    if(abs(determinant) < tolerance) {
-        return false;
-    }
-
-    if(inverse != nullptr) {
-        auto s = 1.0f/determinant;
-        inverse->values[0][0] =  s*m11;
-        inverse->values[0][1] = -s*m01;
-        inverse->values[1][0] = -s*m10;
-        inverse->values[1][1] =  s*m00;
-    }
-
-    return true;
-}
-
-
-Bool in_interval(Float32 x, Float32 a, Float32 b) {
-    return (x > a - tolerance) && (x < b + tolerance);
-}
-
-
 Bool find_segments_intersection(V2f a0, V2f a1, V2f b0, V2f b1, V2f* ts) {
     auto matrix = M2f::from_columns(a1 - a0, b0 - b1);
     auto inverse = M2f();
-    if(invert_matrix2(matrix, &inverse) == false) {
+    if(invert_matrix2(matrix, &inverse, tolerance) == false) {
         return false;
     }
 
     auto _ts = inverse*(b0 - a0);
-    if(in_interval(_ts.x, 0, 1) && in_interval(_ts.y, 0, 1)) {
+    if(in_interval(_ts.x, 0, 1, tolerance) && in_interval(_ts.y, 0, 1, tolerance)) {
         if(ts != nullptr) {
             *ts = _ts;
         }
@@ -497,42 +278,42 @@ int main() {
 
                 switch (curve.degree) {
                     case 1: {
-                        Float32 poly[2] = {};
-                        get_poly_coefficients_1(curve, axis, poly[1], poly[0]);
+                        auto bezier = get_bezier_1(curve);
+                        auto component_bezier = get_component_bezier(bezier, axis);
+                        auto poly = get_poly<Float32>(component_bezier);
                         poly[0] -= next_pos;
 
                         auto r0 = 2.f;
-                        find_roots_poly_1(poly[1], poly[0], r0);
+                        find_roots(poly, r0, tolerance);
                         t_min = clamp_t(r0);
                     } break;
 
                     case 2: {
-                        Float32 poly[3] = {};
-                        get_poly_coefficients_2(curve, axis, poly[2], poly[1], poly[0]);
+                        auto bezier = get_bezier_2(curve);
+                        auto component_bezier = get_component_bezier(bezier, axis);
+                        auto poly = get_poly<Float32>(component_bezier);
                         poly[0] -= next_pos;
 
                         auto r0 = 2.f, r1 = 2.f;
-                        find_roots_poly_2(poly[2], poly[1], poly[0], r0, r1);
+                        find_roots(poly, r0, r1, tolerance);
                         t_min = min(clamp_t(r0), clamp_t(r1));
                     } break;
 
                     case 3: {
-                        // Newton raphson.
                         constexpr Uint iter_count = 8;
 
-                        Float32 poly[4] = {};
-                        get_poly_coefficients_3(curve, axis, poly[3], poly[2], poly[1], poly[0]);
+                        auto bezier = get_bezier_3(curve);
+                        auto component_bezier = get_component_bezier(bezier, axis);
+                        auto poly = get_poly<Float32>(component_bezier);
                         poly[0] -= next_pos;
 
-                        Float32 derivative[3] = {};
-                        derivative[2] = 3.f*poly[3];
-                        derivative[1] = 2.f*poly[2];
-                        derivative[0] = 1.f*poly[1];
+                        auto derivative = derive<Float32>(poly);
 
+                        // Newton raphson.
                         auto t = 0.5f*(cut_t0 + cut_t1);
                         for(auto i : Range<Uint>(iter_count)) {
                             UNUSED(i);
-                            t -= evaluate_poly_3(poly, t)/evaluate_poly_2(derivative, t);
+                            t -= evaluate(poly, t)/evaluate(derivative, t);
                         }
 
                         t_min = clamp_t(t);
@@ -655,7 +436,6 @@ int main() {
         fragment.winding_sign = (p1.y - p0.y) < 0.f;
         fragment.out_mask     = find_segments_intersection(c0, c1, V2f(0.f, 0.5f), V2f(1.f, 0.5f), nullptr);
         fragment.sample_mask  = find_segments_intersection(c0, c1, V2f(0.f, 0.5f), V2f(0.5f, 0.5f), nullptr);
-        p0 = p0;
     }
 
 

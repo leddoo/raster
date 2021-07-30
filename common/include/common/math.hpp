@@ -20,27 +20,16 @@ template <typename T>
 T squared(T v) { return v*v; }
 
 
-/*
-using V2f = glm::vec2;
-using V3f = glm::vec3;
-using V4f = glm::vec4;
 
-inline V2f min(V2f a, V2f b) { return V2f { min(a.x, b.x), min(a.y, b.y) }; }
-inline V2f max(V2f a, V2f b) { return V2f { max(a.x, b.x), max(a.y, b.y) }; }
-
-inline Bool operator < (V2f a, V2f b) { return (a.x <  b.x) && (a.y <  b.y); }
-inline Bool operator <=(V2f a, V2f b) { return (a.x <= b.x) && (a.y <= b.y); }
-inline Bool operator > (V2f a, V2f b) { return (a.x >  b.x) && (a.y >  b.y); }
-inline Bool operator >=(V2f a, V2f b) { return (a.x >= b.x) && (a.y >= b.y); }
-
-inline Float32 dot(V2f a, V2f b) { return a.x*b.x + a.y*b.y; }
-
-inline Float32 length_squared(V2f v) { return dot(v, v); }
-
-inline V2f round(V2f a) { return V2f { round(a.x), round(a.y) }; }
-
-
-inline V4f make_color(Float32 r, Float32 g, Float32 b, Float32 a = 255) {
-    return V4f { r/255.0f, g/255.0f, b/255.0f, a/255.0f };
+template <typename T>
+T sign(T v) {
+    if     (v < T(0)) { return T(-1); }
+    else if(v > T(0)) { return T(1);  }
+    else              { return T(0);  }
 }
-*/
+
+inline
+Bool in_interval(Float32 x, Float32 a, Float32 b, Float32 tolerance) {
+    return (x > a - tolerance) && (x < b + tolerance);
+}
+
