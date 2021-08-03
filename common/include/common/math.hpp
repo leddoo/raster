@@ -20,6 +20,12 @@ template <typename T>
 T squared(T v) { return v*v; }
 
 
+template <typename T, typename Scalar>
+T lerp(T a, T b, Scalar t) {
+    return (Scalar(1) - t)*a + t*b;
+}
+
+
 
 template <typename T>
 T sign(T v) {
@@ -28,8 +34,31 @@ T sign(T v) {
     else              { return T(0);  }
 }
 
-inline
-Bool in_interval(Float32 x, Float32 a, Float32 b, Float32 tolerance) {
-    return (x > a - tolerance) && (x < b + tolerance);
+template <typename T>
+T sign(T v, T tolerance) {
+    if     (v < T(0) - tolerance) { return T(-1); }
+    else if(v > T(0) + tolerance) { return T(1);  }
+    else                          { return T(0);  }
+}
+
+
+template <typename T>
+inline Bool in_interval_inclusive(T x, T a, T b, T tolerance = T(0)) {
+    return (x >= a - tolerance) && (x <= b + tolerance);
+}
+
+template <typename T>
+inline Bool in_interval_exclusive(T x, T a, T b, T tolerance = T(0)) {
+    return (x > a + tolerance) && (x < b - tolerance);
+}
+
+template <typename T>
+inline Bool in_interval_left_inclusive(T x, T a, T b, T tolerance = T(0)) {
+    return (x >= a - tolerance) && (x < b - tolerance);
+}
+
+template <typename T>
+inline Bool in_interval_right_inclusive(T x, T a, T b, T tolerance = T(0)) {
+    return (x > a + tolerance) && (x <= b + tolerance);
 }
 

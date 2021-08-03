@@ -1,3 +1,4 @@
+#define _CRT_SECURE_NO_WARNINGS
 #include <common/common.hpp>
 #include <common/math.hpp>
 #include <common/slice.hpp>
@@ -11,29 +12,22 @@ using Exception = std::exception;
 
 
 
-Bezier<Float32, 0> get_component_bezier(const Bezier<V2f, 0>& bezier, Uint axis) {
-    return Bezier<Float32, 0>{ bezier[0][axis] };
-}
-
-Bezier<Float32, 1> get_component_bezier(const Bezier<V2f, 1>& bezier, Uint axis) {
-    return Bezier<Float32, 1>{ bezier[0][axis], bezier[1][axis] };
-}
-
-Bezier<Float32, 2> get_component_bezier(const Bezier<V2f, 2>& bezier, Uint axis) {
-    return Bezier<Float32, 2>{ bezier[0][axis], bezier[1][axis], bezier[2][axis] };
-}
-
-Bezier<Float32, 3> get_component_bezier(const Bezier<V2f, 3>& bezier, Uint axis) {
-    return Bezier<Float32, 3>{ bezier[0][axis], bezier[1][axis], bezier[2][axis], bezier[3][axis] };
-}
-
-
 
 struct Generic_Bezier {
     static constexpr Uint max_point_count = 4;
 
     Uint32                      degree;
     Array<V2f, max_point_count> values;
+
+    V2f& operator[](Uint index) {
+        assert(index <= this->degree);
+        return this->values[index];
+    }
+
+    const V2f& operator[](Uint index) const {
+        assert(index <= this->degree);
+        return this->values[index];
+    }
 };
 
 Generic_Bezier generic_line(V2f p0, V2f p1) {
@@ -65,18 +59,22 @@ Generic_Bezier generic_cubic(V2f p0, V2f p1, V2f p2, V2f p3) {
 
 
 Bezier<V2f, 0> get_bezier_0(const Generic_Bezier& curve) {
+    assert(curve.degree == 0);
     return Bezier<V2f, 0>{ curve.values[0] };
 }
 
 Bezier<V2f, 1> get_bezier_1(const Generic_Bezier& curve) {
+    assert(curve.degree == 1);
     return Bezier<V2f, 1>{ curve.values[0], curve.values[1] };
 }
 
 Bezier<V2f, 2> get_bezier_2(const Generic_Bezier& curve) {
+    assert(curve.degree == 2);
     return Bezier<V2f, 2>{ curve.values[0], curve.values[1], curve.values[2] };
 }
 
 Bezier<V2f, 3> get_bezier_3(const Generic_Bezier& curve) {
+    assert(curve.degree == 3);
     return Bezier<V2f, 3>{ curve.values[0], curve.values[1], curve.values[2], curve.values[3] };
 }
 
@@ -93,10 +91,7 @@ V2f evaluate(const Generic_Bezier& curve, Float32 t) {
 }
 
 
-constexpr Float32 tolerance = 1e-6f;
-
-
-Uint find_derivative_roots(const Generic_Bezier& curve, Uint32 axis, Float32& t0, Float32& t1) {
+Uint find_derivative_roots(const Generic_Bezier& curve, Uint32 axis, Float32& t0, Float32& t1, Float32 tolerance) {
     auto root_count = Uint();
     switch(curve.degree) {
         case 0: case 1: {
@@ -124,99 +119,206 @@ Uint find_derivative_roots(const Generic_Bezier& curve, Uint32 axis, Float32& t0
 }
 
 
+
+
+void print(const Bezier<V2f, 1>& bezier) {
+    printf(
+        "segment((%f, %f), (%f, %f)), ",
+        bezier[0][0], bezier[0][1],
+        bezier[1][0], bezier[1][1]
+    );
+}
+
+void print(const Bezier<V2f, 2>& bezier) {
+    printf(
+        "curve( "
+        "  %f*(1-t)^2 "
+        "+ 2*%f*(1-t)*t "
+        "+ %f*t^2, "
+        "  %f*(1-t)^2 "
+        "+ 2*%f*(1-t)*t "
+        "+ %f*t^2, "
+        "t, 0, 1), ",
+        bezier[0][0], bezier[1][0], bezier[2][0],
+        bezier[0][1], bezier[1][1], bezier[2][1]
+    );
+}
+
+
 template <typename T, typename F>
 void insertion_sort(Slice<T> slice, F leq) {
     for(auto i : Range<Uint>(1, slice.count)) {
         auto j = i;
-        while(j > 0 && !leq(slice.values[j - 1], slice.values[j])) {
-            swap(slice.values[j - 1], slice.values[j]);
-            j += 1;
+        while(j > 0 && !leq(slice[j - 1], slice[j])) {
+            swap(slice[j - 1], slice[j]);
+            j -= 1;
         }
     }
 }
 
 
-Bool find_segments_intersection(V2f a0, V2f a1, V2f b0, V2f b1, V2f* ts) {
-    auto matrix = M2f::from_columns(a1 - a0, b0 - b1);
-    auto inverse = M2f();
-    if(invert_matrix2(matrix, &inverse, tolerance) == false) {
-        return false;
+List<Generic_Bezier> compute_stroke(
+    const List<Generic_Bezier>& path, Bool is_closed,
+    Float32 left_offset, Float32 right_offset,
+    Float32 tolerance
+) {
+    // degree reduction.
+    auto outline = List<Generic_Bezier>();
+    for(const auto& curve : path) {
+        if(curve.degree == 3) {
+            auto quads = reduce_degree(get_bezier_3(curve), 0.1f);
+            for(const auto& q : quads) {
+                outline.push_back(generic_quadratic(q[0], q[1], q[2]));
+            }
+        }
+        else {
+            outline.push_back(curve);
+        }
     }
 
-    auto _ts = inverse*(b0 - a0);
-    if(in_interval(_ts.x, 0, 1, tolerance) && in_interval(_ts.y, 0, 1, tolerance)) {
-        if(ts != nullptr) {
-            *ts = _ts;
+    // offsetting.
+    auto left_outline  = List<Generic_Bezier>();
+    auto right_outline = List<Generic_Bezier>();
+    for(auto i : range_of(outline)) {
+        const auto& curve = outline[i];
+
+        if(curve.degree == 1) {
+            auto bezier = get_bezier_1(curve);
+            auto n = rotate_ccw(normalized(bezier[1] - bezier[0]));
+            left_outline. push_back(generic_line(bezier[0] + left_offset*n,  bezier[1] + left_offset*n));
+            right_outline.push_back(generic_line(bezier[0] - right_offset*n, bezier[1] - right_offset*n));
         }
-        return true;
+        else if(curve.degree == 2) {
+            auto bezier = get_bezier_2(curve);
+            auto l = offset(bezier, +left_offset, tolerance);
+            auto r = offset(bezier, -right_offset, tolerance);
+            left_outline. push_back(generic_quadratic(l[0], l[1], l[2]));
+            right_outline.push_back(generic_quadratic(r[0], r[1], r[2]));
+        }
+        else {
+            assert(false);
+        }
     }
+
+    // compute stroke by connecting end points.
+    auto stroke = List<Generic_Bezier>();
+    for(auto i : range_of(left_outline)) {
+        const auto& current = left_outline[i];
+
+        if(i > 0) {
+            const auto& prev = left_outline[i - 1];
+            stroke.push_back(generic_line(prev[prev.degree], current[0]));
+        }
+
+        stroke.push_back(current);
+    }
+    for(auto i : range_of(right_outline)) {
+        auto current = right_outline[i];
+
+        if(i > 0) {
+            const auto& prev = right_outline[i - 1];
+            stroke.push_back(generic_line(current[0], prev[prev.degree]));
+        }
+
+        std::reverse(&current.values[0], &current.values[current.degree + 1]);
+        stroke.push_back(current);
+    }
+
+    // Bevel cap.
+    if(is_closed && outline.size() > 1) {
+        const auto& first_left = first(left_outline);
+        const auto& last_left  = last(left_outline);
+        stroke.push_back(generic_line(last_left[last_left.degree], first_left[0]));
+
+        const auto& first_right = first(right_outline);
+        const auto& last_right  = last(right_outline);
+        stroke.push_back(generic_line(first_right[0], last_right[last_right.degree]));
+    }
+    // Bevel join.
     else {
-        return false;
+        const auto& first_left  = first(left_outline);
+        const auto& first_right = first(right_outline);
+        stroke.push_back(generic_line(first_right[0], first_left[0]));
+
+        const auto& last_left  = last(left_outline);
+        const auto& last_right = last(right_outline);
+        stroke.push_back(generic_line(last_left[last_left.degree], last_right[last_right.degree]));
     }
+
+    return stroke;
 }
 
 
-int main() {
 
-    auto path = List<Generic_Bezier> {
-        generic_line({10.f, 10.f}, {20.f, 10.f}),
-        generic_quadratic({20.f, 10.f}, {23.5f, 15.f}, {30.f, 10.f}),
-        generic_line({30.f, 10.f}, {37.5f, 15.f}),
-        generic_cubic({37.5f, 15.f}, {28.f, 30.f}, {10.f, 22.f}, {10.f, 10.f}),
-    };
+constexpr Uint max_cuts_per_axis = 2;
+constexpr Uint max_cut_count = 2*max_cuts_per_axis;
+struct Cut {
+    Float32 t;
+    Uint32  axis;
+};
+
+// monotone: Ranges where the derivative's sign is constant -> between the roots.
+
+Array<Cut, max_cut_count> find_monotone_segments(
+    const Generic_Bezier& curve,
+    Float32 tolerance
+) {
+    auto cuts = Array<Cut, max_cut_count>();
+
+    for(auto axis : Range<Uint32>(2)) {
+        auto cuts_begin = axis*max_cuts_per_axis;
+
+        auto& cut_0 = cuts[cuts_begin + 0];
+        auto& cut_1 = cuts[cuts_begin + 1];
+        // Initialize cuts to make sorting work.
+        cut_0.t    = cut_1.t    = 1.f;
+        cut_0.axis = cut_1.axis = axis;
+
+        find_derivative_roots(curve, axis, cut_0.t, cut_1.t, tolerance);
+    }
+
+    // Sort cuts by t. (We have to sort the entire array. Eg: [1, 1, 0.5, 0.75])
+    insertion_sort(make_slice(cuts), [](const auto& a, const auto& b) { return a.t <= b.t; });
+
+    return cuts;
+}
 
 
-    // Find monotone segments. (Ranges where the derivative's sign is constant -> between the roots.)
-
-    constexpr Uint max_cuts_per_axis = 2;
-    constexpr Uint max_cut_count = 2*max_cuts_per_axis;
-    struct Cut {
-        Float32 t;
-        Uint32  axis;
-    };
-
+List<Array<Cut, max_cut_count>> find_monotone_segments(
+    const List<Generic_Bezier>& path,
+    Float32 tolerance
+) {
     auto curve_cuts = List<Array<Cut, max_cut_count>>(path.size());
     for(auto curve_index : range_of(path)) {
-        auto& cuts = curve_cuts[curve_index];
-
-        auto total_cuts = Uint(0);
-
-        for(auto axis : Range<Uint32>(2)) {
-            auto cuts_begin = axis*max_cuts_per_axis;
-
-            auto& cut_0 = cuts[cuts_begin + 0];
-            auto& cut_1 = cuts[cuts_begin + 1];
-            // Initialize cuts to make sorting work.
-            cut_0.t    = cut_1.t    = 1.f;
-            cut_0.axis = cut_1.axis = axis;
-
-            total_cuts += find_derivative_roots(path[curve_index], axis, cut_0.t, cut_1.t);
-        }
-
-        // Sort cuts by t. (We have to sort the entire array. Eg: [1, 1, 0.5, 0.75])
-        insertion_sort(make_slice(cuts), [](const auto& a, const auto& b) { return a.t <= b.t; });
+        curve_cuts[curve_index] = find_monotone_segments(path[curve_index], tolerance);
     }
+    return curve_cuts;
+}
 
 
 
-    struct Boundary_Fragment {
-        V2s     position;
-        Float32 t0;
-        Uint32  curve_index;
+struct Boundary_Fragment {
+    V2s     position;
+    Float32 t0;
+    Uint32  curve_index;
 
-        Sint32 in_winding;   // winding at (0, 0.5).
-        Bool   winding_sign; // curve goes up?
-        Bool   out_mask;     // ((0, 0.5), (1, 0.5)) hits curve?
-        Bool   sample_mask;  // ((0, 0.5), (0.5, 0.5)) hits curve?
+    Sint32 winding_sign;
+    Bool   out_mask;     // ((0, 0.5), (1, 0.5)) hits curve?
+    Bool   sample_mask;  // ((0, 0.5), (0.5, 0.5)) hits curve?
 
-        Sint32 x() const { return position.x; }
-        Sint32 y() const { return position.y; }
-    };
+    Sint32 x() const { return position.x; }
+    Sint32 y() const { return position.y; }
+};
+
+
+List<Boundary_Fragment> find_boundary_fragments(
+    const List<Generic_Bezier>& path,
+    const List<Array<Cut, max_cut_count>>& curve_cuts,
+    Float32 tolerance
+) {
+    auto fragments = List<Boundary_Fragment>();
 
     // Find boundary fragments by rasterizing the curves.
-    // Set position, t0, curve_index. (zero init rest)
-
-    auto fragments = List<Boundary_Fragment>();
     for(auto curve_index : range_of(path)) {
         auto& curve = path[curve_index];
         auto& cuts  = curve_cuts[curve_index];
@@ -367,57 +469,15 @@ int main() {
         }
     }
 
-
-    #if 0
-        for(auto& fragment : fragments) {
-            auto x = fragment.position.x;
-            auto y = fragment.position.y;
-            printf("Polygon((%d, %d),(%d, %d),(%d, %d),(%d, %d)), ",
-                x, y, x+1, y, x+1, y+1, x, y+1
-            );
-        }
-        printf("\n");
-
-        for(auto i : range_of(fragments)) {
-            auto t0 = fragments[i].t0;
-            auto t1 = 1.f;
-            if(i + 1 < fragments.size() && fragments[i].curve_index == fragments[i + 1].curve_index) {
-                t1 = fragments[i + 1].t0;
-            }
-            auto p0 = evaluate(path[fragments[i].curve_index], t0);
-            auto p1 = evaluate(path[fragments[i].curve_index], t1);
-            printf("Segment((%f, %f), (%f, %f)), ",
-                p0.x, p0.y, p1.x, p1.y
-            );
-        }
-        printf("\n");
-
-        for(auto i : range_of(fragments)) {
-            auto t0 = fragments[i].t0;
-            auto t1 = 1.f;
-            if(i + 1 < fragments.size() && fragments[i].curve_index == fragments[i + 1].curve_index) {
-                t1 = fragments[i + 1].t0;
-            }
-            auto p0 = evaluate(path[fragments[i].curve_index], t0);
-            auto p1 = evaluate(path[fragments[i].curve_index], t1);
-            printf("Point({%f, %f}), ", p0.x, p0.y);
-        }
-        printf("\n");
-
-        for(auto i : range_of(fragments)) {
-            auto t0 = fragments[i].t0;
-            auto t1 = 1.f;
-            if(i + 1 < fragments.size() && fragments[i].curve_index == fragments[i + 1].curve_index) {
-                t1 = fragments[i + 1].t0;
-            }
-            auto p0 = evaluate(path[fragments[i].curve_index], t0);
-            auto p1 = evaluate(path[fragments[i].curve_index], t1);
-            printf("Point({%f, %f}), ", p1.x, p1.y);
-        }
-        printf("\n");
-    #endif
+    return fragments;
+}
 
 
+void compute_winding(
+    List<Boundary_Fragment>& fragments,
+    const List<Generic_Bezier>& path,
+    Float32 tolerance
+) {
     // compute per fragment winding changes and sample mask.
     for(auto i : range_of(fragments)) {
         auto& fragment = fragments[i];
@@ -430,77 +490,182 @@ int main() {
 
         auto p0 = evaluate(path[fragments[i].curve_index], t0);
         auto p1 = evaluate(path[fragments[i].curve_index], t1);
-        auto c0 = p0 - V2f(fragment.position);
-        auto c1 = p1 - V2f(fragment.position);
 
-        fragment.winding_sign = (p1.y - p0.y) < 0.f;
-        fragment.out_mask     = find_segments_intersection(c0, c1, V2f(0.f, 0.5f), V2f(1.f, 0.5f), nullptr);
-        fragment.sample_mask  = find_segments_intersection(c0, c1, V2f(0.f, 0.5f), V2f(0.5f, 0.5f), nullptr);
-    }
+        auto normalized_0 = p0 - V2f(fragment.position);
+        auto normalized_1 = p1 - V2f(fragment.position);
 
+        // Sort coordinates to make hit testing curve direction independent.
+        auto test_0 = min(normalized_0, normalized_1);
+        auto test_1 = max(normalized_0, normalized_1);
 
-    // sort boundary fragments by y then x.
-    {
-        struct Compare_Boundary_Fragments {
-            Bool operator()(const Boundary_Fragment& a, const Boundary_Fragment& b) {
-                if(a.y() != b.y()) { return a.y() < b.y(); }
-                else               { return a.x() < b.x(); }
+        auto intersect_ray = [=](V2f r0, V2f r1) {
+            auto ts = V2f();
+            if(find_lines_intersection(r0, r1, test_0, test_1, &ts, tolerance) == false) {
+                return false;
             }
+
+            // NOTE: Use half open interavl [0; 1) to avoid overlap.  Tolerance
+            // does not make sense here, as it would just offset the cut-off
+            // line.
+            // What is important however is that the path does not contain holes
+            // between consecutive curves. (Splitting should be fine: always
+            // have t = 0, t = 1 and each t1 is the t0 of another segment.)
+            auto hit = in_interval_left_inclusive(ts, 0.f, 1.f);
+            return hit[0] && hit[1];
         };
-        std::sort(fragments.begin(), fragments.end(), Compare_Boundary_Fragments());
+
+        fragment.winding_sign = (Sint32)sign(p1.y - p0.y, 1e-4f); // "tolerance" seems to be too strict.
+        fragment.out_mask     = intersect_ray(V2f(0.f, 0.5f), V2f(1.f, 0.5f));
+        fragment.sample_mask  = intersect_ray(V2f(0.f, 0.5f), V2f(0.5f, 0.5f));
     }
+}
 
 
-    // scan pixel lines.
-    {
-        auto scan_winding = Sint32();
-        auto scan_line    = Sint32();
-        auto scan_x       = Sint32();
-
-        auto i = Uint(0);
-        while(i < fragments.size()) {
-            auto position = fragments[i].position;
-
-            if(position.y != scan_line) {
-                assert(scan_winding == 0);
-                scan_winding = 0;
-                scan_line = fragments[i].y();
-            }
-            else if(position.x > scan_x + 1 && scan_winding != 0) {
-                // Output solid span.
-                auto x0 = scan_x;
-                auto x1 = position.x; // exclusive.
-                auto y  = scan_line;
-                printf("Polygon((%d, %d),(%d, %d),(%d, %d),(%d, %d)), ",
-                    x0, y, x1, y, x1, y+1, x0, y+1
-                );
-            }
-
-
-            // Accumulate winding changes for this pixel.
-            auto delta_out_winding    = Sint32(0);
-            auto delta_sample_winding = Sint32(0);
-            while(i < fragments.size() && fragments[i].x() == position.x) {
-                auto sign = fragments[i].winding_sign ? -1 : 1;
-                delta_out_winding    += sign*fragments[i].out_mask;
-                delta_sample_winding += sign*fragments[i].sample_mask;
-                i += 1;
-            }
-
-            auto sample_winding = scan_winding + delta_sample_winding;
-            if(sample_winding != 0) {
-                auto x = position.x;
-                auto y = position.y;
-                printf("Polygon((%d, %d),(%d, %d),(%d, %d),(%d, %d)), ",
-                    x, y, x+1, y, x+1, y+1, x, y+1
-                );
-            }
-
-            scan_winding    += delta_out_winding;
-            scan_x           = position.x + 1;
+// sort by y then x.
+void sort_boundary_fragments(List<Boundary_Fragment>& fragments) {
+    struct Compare_Boundary_Fragments {
+        Bool operator()(const Boundary_Fragment& a, const Boundary_Fragment& b) {
+            if(a.y() != b.y()) { return a.y() < b.y(); }
+            else               { return a.x() < b.x(); }
         }
-    }
+    };
+    std::sort(fragments.begin(), fragments.end(), Compare_Boundary_Fragments());
+}
 
+
+template <typename On_Span, typename On_Pixel>
+void rasterize(
+    const List<Boundary_Fragment>& fragments,
+    const On_Span& on_span,
+    const On_Pixel& on_pixel
+) {
+    auto scan_winding = Sint32();
+    auto scan_line    = Sint32();
+    auto scan_x       = Sint32();
+
+    auto i = Uint(0);
+    while(i < fragments.size()) {
+        auto position = fragments[i].position;
+
+        if(position.y != scan_line) {
+            //assert(scan_winding == 0);
+            scan_winding = 0;
+            scan_line = fragments[i].y();
+        }
+        else if(position.x > scan_x && scan_winding != 0) {
+            // Output solid span.
+            auto x0 = scan_x;
+            auto x1 = position.x; // exclusive.
+            auto y  = scan_line;
+            on_span(x0, x1, y);
+        }
+
+
+        // Accumulate winding changes for this pixel.
+        auto delta_out_winding    = Sint32(0);
+        auto delta_sample_winding = Sint32(0);
+        while(i < fragments.size() && fragments[i].x() == position.x) {
+            auto sign = fragments[i].winding_sign;
+            delta_out_winding    += sign*fragments[i].out_mask;
+            delta_sample_winding += sign*fragments[i].sample_mask;
+            i += 1;
+        }
+
+        auto sample_winding = scan_winding + delta_sample_winding;
+        if(sample_winding != 0) {
+            auto x = position.x;
+            auto y = position.y;
+            on_pixel(x, y);
+        }
+
+        scan_winding    += delta_out_winding;
+        scan_x           = position.x + 1;
+    }
+}
+
+
+template <typename On_Span, typename On_Pixel>
+void rasterize(
+    const List<Generic_Bezier>& path,
+    Float32 tolerance,
+    const On_Span& on_span,
+    const On_Pixel& on_pixel
+) {
+    auto curve_cuts = find_monotone_segments(path, tolerance);
+    auto fragments = find_boundary_fragments(path, curve_cuts, tolerance);
+    compute_winding(fragments, path, tolerance);
+    sort_boundary_fragments(fragments);
+    rasterize(fragments, on_span, on_pixel);
+}
+
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
+
+int main() {
+
+    #if 1
+    auto path = List<Generic_Bezier> {
+        generic_line({10.f, 10.f}, {20.f, 10.f}),
+        generic_quadratic({20.f, 10.f}, {23.5f, 15.f}, {30.f, 10.f}),
+        generic_line({30.f, 10.f}, {37.5f, 15.f}),
+        generic_cubic({37.5f, 15.f}, {28.f, 30.f}, {10.f, 22.f}, {10.f, 10.f}),
+    };
+
+    path = {
+        generic_cubic({50, 50}, {100, 50}, {150, 50}, {135, 65}),
+    };
+
+    path = {
+        generic_cubic({125, 325}, {150, 425}, {300, 400}, {300, 300}),
+        generic_cubic({300, 300}, {300, 200}, {150, 175}, {125, 275}),
+        generic_cubic({125, 275}, {125, 225}, {150, 125}, {225, 125}),
+        generic_line({225, 125}, {475, 125}),
+        generic_cubic({475, 125}, {400, 200}, {450, 275}, {375, 300}),
+        generic_cubic({375, 300}, {450, 325}, {475, 351.2f}, {475, 400}),
+        generic_cubic({475, 400}, {475, 450}, {450, 475}, {400, 475}),
+        generic_line({400, 475}, {225, 475}),
+        generic_cubic({225, 475}, {150, 475}, {125, 375}, {125, 325}),
+    };
+
+    path = compute_stroke(path, true, 5.f, 5.f, 0.1f);
+    #endif
+
+
+    constexpr Float32 tolerance = 1e-6f;
+
+    // r, g, b, a.
+    auto width  = Uint(600);
+    auto height = Uint(600);
+    auto stride = width*4;
+    auto image = List<Uint8>(stride*height);
+
+    auto write = [&](Sint32 x, Sint32 y, Float32 r, Float32 g, Float32 b, Float32 a) {
+        if(x >= 0 && x < width && y >= 0 && y < height) {
+            image[y*stride + 4*x + 0] = Uint8(r*255.0f);
+            image[y*stride + 4*x + 1] = Uint8(g*255.0f);
+            image[y*stride + 4*x + 2] = Uint8(b*255.0f);
+            image[y*stride + 4*x + 3] = Uint8(a*255.0f);
+        }
+    };
+
+    auto draw_path = [&](const List<Generic_Bezier>& path, Float32 r, Float32 g, Float32 b, Float32 a) {
+        rasterize(path, tolerance,
+            [&](Sint32 x0, Sint32 x1, Sint32 y) {
+                for(auto x : Range<Sint32>(x0, x1)) {
+                    write(x, y, r, g, b, a);
+                }
+            },
+            [&](Sint32 x, Sint32 y) {
+                write(x, y, r, g, b, a);
+            }
+        );
+    };
+
+    draw_path(path, 1.0f, 1.0f, 1.0f, 1.0f);
+
+    stbi_write_png("out.png", (int)width, (int)height, 4, image.data(), (int)stride);
 
     return 0;
 }

@@ -42,6 +42,7 @@ template <typename T> V2<T> operator/(V2<T> a, V2<T> b) { return { a.x / b.x, a.
 template <typename T> V2<T> operator*(T a, V2<T> b) { return { a * b.x, a * b.y }; }
 template <typename T> V2<T> operator*(V2<T> a, T b) { return { a.x * b, a.y * b }; }
 template <typename T> V2<T> operator/(V2<T> a, T b) { return { a.x / b, a.y / b }; }
+template <typename T> V2<T> operator-(V2<T> a) { return { -a.x, -a.y }; }
 
 template <typename T> V2<T> floor(V2<T> a) { return { floor(a.x), floor(a.y) }; }
 template <typename T> V2<T> ceil(V2<T> a)  { return { ceil(a.x),  ceil(a.y)  }; }
@@ -49,6 +50,23 @@ template <typename T> V2<T> abs(V2<T> a)   { return { abs(a.x),   abs(a.y)   }; 
 template <typename T> V2<T> sign(V2<T> a)  { return { sign(a.x),  sign(a.y)  }; }
 template <typename T> V2<T> min(V2<T> a, V2<T> b) { return { min(a.x, b.x), min(a.y, b.y) }; }
 template <typename T> V2<T> max(V2<T> a, V2<T> b) { return { max(a.x, b.x), max(a.y, b.y) }; }
+
+
+template <typename T> T dot(V2<T> a, V2<T> b) { return a.x*b.x + a.y*b.y; }
+template <typename T> T length_squared(V2<T> a) { return dot(a, a); }
+template <typename T> T length(V2<T> a) { return sqrt(length_squared(a)); }
+
+template <typename T> V2<T> normalized(V2<T> a) { return (T(1)/length(a)) * a; }
+template <typename T> V2<T> rotate_ccw(V2<T> a) { return V2<T>(-a.y, a.x); }
+template <typename T> V2<T> rotate_cws(V2<T> a) { return V2<T>(a.y, -a.x); }
+
+template <typename T>
+V2<Bool> in_interval_left_inclusive(V2<T> v, T a, T b, T tolerance = T(0)) {
+    return V2<Bool>{
+        in_interval_left_inclusive(v[0], a, b, tolerance),
+        in_interval_left_inclusive(v[1], a, b, tolerance),
+    };
+}
 
 
 
@@ -77,3 +95,5 @@ V2<T> operator*(M2<T> m, V2<T> v) {
 
 Bool invert_matrix2(M2f matrix, M2f* inverse, Float32 tolerance);
 
+
+Bool find_lines_intersection(V2f a0, V2f a1, V2f b0, V2f b1, V2f* ts, Float32 tolerance);

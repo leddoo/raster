@@ -127,6 +127,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\bezier.cpp" />
     <ClCompile Include="src\lina.cpp" />
     <ClCompile Include="src\main.cpp" />
   </ItemGroup>
@@ -134,6 +135,7 @@
     <ClInclude Include="src\bezier.hpp" />
     <ClInclude Include="src\lina.hpp" />
     <ClInclude Include="src\poly.hpp" />
+    <ClInclude Include="src\stb_image_write.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

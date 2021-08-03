@@ -53,6 +53,17 @@ template <typename T>
 using List = std::vector<T>;
 
 
+template <typename T, Uint n>       T& first(Array<T, n>& array)       { return array[0]; }
+template <typename T, Uint n> const T& first(const Array<T, n>& array) { return array[0]; }
+template <typename T, Uint n>       T& last(Array<T, n>& array)        { return array[array.size() - 1]; }
+template <typename T, Uint n> const T& last(const Array<T, n>& array)  { return array[array.size() - 1]; }
+
+template <typename T>       T& first(List<T>& list)       { return list[0]; }
+template <typename T> const T& first(const List<T>& list) { return list[0]; }
+template <typename T>       T& last(List<T>& list)        { return list[list.size() - 1]; }
+template <typename T> const T& last(const List<T>& list)  { return list[list.size() - 1]; }
+
+
 struct Unimplemented : public std::exception {};
 struct Unreachable : public std::exception {};
 struct Invalid_Dynamic_Type : public std::exception {};

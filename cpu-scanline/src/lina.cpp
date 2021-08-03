@@ -23,3 +23,18 @@ Bool invert_matrix2(M2f matrix, M2f* inverse, Float32 tolerance) {
 
     return true;
 }
+
+
+Bool find_lines_intersection(V2f a0, V2f a1, V2f b0, V2f b1, V2f* ts, Float32 tolerance) {
+    auto matrix = M2f::from_columns(a1 - a0, b0 - b1);
+    auto inverse = M2f();
+    if(invert_matrix2(matrix, &inverse, tolerance) == false) {
+        return false;
+    }
+
+    if(ts != nullptr) {
+        *ts = inverse*(b0 - a0);
+    }
+    return true;
+}
+
