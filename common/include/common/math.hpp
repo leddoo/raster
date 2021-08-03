@@ -25,6 +25,11 @@ T lerp(T a, T b, Scalar t) {
     return (Scalar(1) - t)*a + t*b;
 }
 
+template <typename Scalar>
+Scalar inverse_lerp(Scalar v, Scalar a, Scalar b) {
+    return (v - a) / (b - a);
+}
+
 
 
 template <typename T>

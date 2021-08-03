@@ -5,6 +5,9 @@
             "includePath": [
                 "C:/VulkanSDK/1.2.182.0/Include",
                 "common/include",
+                "cpu-scanline/lib/",
+                "cpu-scanline/lib/glew/include",
+                "cpu-scanline/lib/glfw/include",
                 "${default}"
             ]
         }

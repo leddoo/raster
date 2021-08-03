@@ -33,20 +33,20 @@ template <typename T> T bernstein_3_3(T t) {                    return t*t*t;   
 
 
 template <typename T, typename Scalar>
-T evaluate(const Bezier<T, 0>& bezier, Scalar t) {
+T evaluate_bernstein(const Bezier<T, 0>& bezier, Scalar t) {
     UNUSED(t);
     return bezier[0];
 }
 
 template <typename T, typename Scalar>
-T evaluate(const Bezier<T, 1>& bezier, Scalar t) {
+T evaluate_bernstein(const Bezier<T, 1>& bezier, Scalar t) {
     return
           bernstein_1_0(t)*bezier[0]
         + bernstein_1_1(t)*bezier[1];
 }
 
 template <typename T, typename Scalar>
-T evaluate(const Bezier<T, 2>& bezier, Scalar t) {
+T evaluate_bernstein(const Bezier<T, 2>& bezier, Scalar t) {
     return
           bernstein_2_0(t)*bezier[0]
         + bernstein_2_1(t)*bezier[1]
@@ -54,12 +54,25 @@ T evaluate(const Bezier<T, 2>& bezier, Scalar t) {
 }
 
 template <typename T, typename Scalar>
-T evaluate(const Bezier<T, 3>& bezier, Scalar t) {
+T evaluate_bernstein(const Bezier<T, 3>& bezier, Scalar t) {
     return
           bernstein_3_0(t)*bezier[0]
         + bernstein_3_1(t)*bezier[1]
         + bernstein_3_2(t)*bezier[2]
         + bernstein_3_3(t)*bezier[3];
+}
+
+
+template <typename T, Uint n, typename Scalar>
+T evaluate_casteljau(const Bezier<T, n>& bezier, Scalar t) {
+    auto values = bezier.values;
+    for(auto i : Range<Uint>(n)) {
+        for(auto j : Range<Uint>(n - i)) {
+            values[j] = (Scalar(1) - t)*values[j] + t*values[j + 1];
+        }
+    }
+    auto b = evaluate_bernstein(bezier, t);
+    return values[0];
 }
 
 

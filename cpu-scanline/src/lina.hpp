@@ -9,7 +9,7 @@
 template <typename T>
 union V2 {
     struct { T x; T y; };
-    T values[2];
+    Array<T, 2> values;
 
     V2() : V2(T(0)) {}
     V2(T all) : V2(all, all) {}
@@ -20,12 +20,10 @@ union V2 {
 
 
     T& operator[](Uint index) {
-        assert(index < 2);
         return this->values[index];
     }
 
     const T& operator[](Uint index) const {
-        assert(index < 2);
         return this->values[index];
     }
 };
@@ -60,6 +58,12 @@ template <typename T> V2<T> normalized(V2<T> a) { return (T(1)/length(a)) * a; }
 template <typename T> V2<T> rotate_ccw(V2<T> a) { return V2<T>(-a.y, a.x); }
 template <typename T> V2<T> rotate_cws(V2<T> a) { return V2<T>(a.y, -a.x); }
 
+template <typename T> V2<Bool> operator< (V2<T> a, V2<T> b) { return V2<Bool>{ a.x <  b.x, a.y <  b.y }; }
+template <typename T> V2<Bool> operator<=(V2<T> a, V2<T> b) { return V2<Bool>{ a.x <= b.x, a.y <= b.y }; }
+template <typename T> V2<Bool> operator> (V2<T> a, V2<T> b) { return V2<Bool>{ a.x >  b.x, a.y >  b.y }; }
+template <typename T> V2<Bool> operator>=(V2<T> a, V2<T> b) { return V2<Bool>{ a.x >= b.x, a.y >= b.y }; }
+
+
 template <typename T>
 V2<Bool> in_interval_left_inclusive(V2<T> v, T a, T b, T tolerance = T(0)) {
     return V2<Bool>{
@@ -67,6 +71,11 @@ V2<Bool> in_interval_left_inclusive(V2<T> v, T a, T b, T tolerance = T(0)) {
         in_interval_left_inclusive(v[1], a, b, tolerance),
     };
 }
+
+
+inline Bool any(V2<Bool> v) { return v.x || v.y; }
+inline Bool all(V2<Bool> v) { return v.x && v.y; }
+inline Bool none(V2<Bool> v) { return any(v) == false; }
 
 
 
