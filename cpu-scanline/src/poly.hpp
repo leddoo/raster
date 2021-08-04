@@ -36,8 +36,8 @@ T evaluate(const Poly<T, 3>& poly, Scalar t) {
 
 
 template <typename Scalar>
-Uint find_roots(const Poly<Scalar, 1>& poly, Scalar& r0, Scalar tolerance) {
-    if(abs(poly[1]) < tolerance) {
+Uint find_roots(const Poly<Scalar, 1>& poly, Scalar& r0, Scalar zero_tolerance) {
+    if(abs(poly[1]) <= zero_tolerance) {
         return 0;
     }
     else {
@@ -47,9 +47,9 @@ Uint find_roots(const Poly<Scalar, 1>& poly, Scalar& r0, Scalar tolerance) {
 }
 
 template <typename Scalar>
-Uint find_roots(const Poly<Scalar, 2>& poly, Scalar& r0, Scalar& r1, Scalar tolerance) {
-    if(abs(poly[2]) < tolerance) {
-        return find_roots(Poly<Scalar, 1>{poly[0], poly[1]}, r0, tolerance);
+Uint find_roots(const Poly<Scalar, 2>& poly, Scalar& r0, Scalar& r1, Scalar zero_tolerance) {
+    if(abs(poly[2]) <= zero_tolerance) {
+        return find_roots(Poly<Scalar, 1>{poly[0], poly[1]}, r0, zero_tolerance);
     }
 
     auto p = poly[1]/poly[2];
@@ -57,7 +57,7 @@ Uint find_roots(const Poly<Scalar, 2>& poly, Scalar& r0, Scalar& r1, Scalar tole
 
     auto x0 = -p/Scalar(2);
     auto discriminant = squared(p/Scalar(2)) - q;
-    if(discriminant < squared(tolerance)) {
+    if(discriminant <= zero_tolerance) {
         r0 = x0;
         return 1;
     }

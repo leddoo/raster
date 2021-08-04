@@ -32,15 +32,14 @@ Scalar inverse_lerp(Scalar v, Scalar a, Scalar b) {
 
 
 
-template <typename T>
-T sign(T v) {
-    if     (v < T(0)) { return T(-1); }
-    else if(v > T(0)) { return T(1);  }
-    else              { return T(0);  }
+inline Bool float_sign(Float32 f) {
+    auto i = Uint32();
+    memcpy(&i, &f, 4);
+    return i >> 31;
 }
 
 template <typename T>
-T sign(T v, T tolerance) {
+T sign(T v, T tolerance = T(0)) {
     if     (v < T(0) - tolerance) { return T(-1); }
     else if(v > T(0) + tolerance) { return T(1);  }
     else                          { return T(0);  }

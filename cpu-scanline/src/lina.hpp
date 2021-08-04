@@ -45,9 +45,9 @@ template <typename T> V2<T> operator-(V2<T> a) { return { -a.x, -a.y }; }
 template <typename T> V2<T> floor(V2<T> a) { return { floor(a.x), floor(a.y) }; }
 template <typename T> V2<T> ceil(V2<T> a)  { return { ceil(a.x),  ceil(a.y)  }; }
 template <typename T> V2<T> abs(V2<T> a)   { return { abs(a.x),   abs(a.y)   }; }
-template <typename T> V2<T> sign(V2<T> a)  { return { sign(a.x),  sign(a.y)  }; }
 template <typename T> V2<T> min(V2<T> a, V2<T> b) { return { min(a.x, b.x), min(a.y, b.y) }; }
 template <typename T> V2<T> max(V2<T> a, V2<T> b) { return { max(a.x, b.x), max(a.y, b.y) }; }
+template <typename T> V2<T> sign(V2<T> a, T tolerance = T(0)) { return { sign(a.x, tolerance), sign(a.y, tolerance)  }; }
 
 
 template <typename T> T dot(V2<T> a, V2<T> b) { return a.x*b.x + a.y*b.y; }
@@ -62,6 +62,7 @@ template <typename T> V2<Bool> operator< (V2<T> a, V2<T> b) { return V2<Bool>{ a
 template <typename T> V2<Bool> operator<=(V2<T> a, V2<T> b) { return V2<Bool>{ a.x <= b.x, a.y <= b.y }; }
 template <typename T> V2<Bool> operator> (V2<T> a, V2<T> b) { return V2<Bool>{ a.x >  b.x, a.y >  b.y }; }
 template <typename T> V2<Bool> operator>=(V2<T> a, V2<T> b) { return V2<Bool>{ a.x >= b.x, a.y >= b.y }; }
+template <typename T> V2<Bool> operator==(V2<T> a, V2<T> b) { return V2<Bool>{ a.x == b.x, a.y == b.y }; }
 
 
 template <typename T>

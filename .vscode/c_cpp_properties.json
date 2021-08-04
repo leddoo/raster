@@ -9,6 +9,11 @@
                 "cpu-scanline/lib/glew/include",
                 "cpu-scanline/lib/glfw/include",
                 "${default}"
+            ],
+            "defines": [
+                "_WIN32=1",
+                "_WIN64=1",
+                "__cplusplus"
             ]
         }
     ],
