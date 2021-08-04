@@ -65,14 +65,6 @@ template <typename T> V2<Bool> operator>=(V2<T> a, V2<T> b) { return V2<Bool>{ a
 template <typename T> V2<Bool> operator==(V2<T> a, V2<T> b) { return V2<Bool>{ a.x == b.x, a.y == b.y }; }
 
 
-template <typename T>
-V2<Bool> in_interval_left_inclusive(V2<T> v, T a, T b, T tolerance = T(0)) {
-    return V2<Bool>{
-        in_interval_left_inclusive(v[0], a, b, tolerance),
-        in_interval_left_inclusive(v[1], a, b, tolerance),
-    };
-}
-
 
 inline Bool any(V2<Bool> v) { return v.x || v.y; }
 inline Bool all(V2<Bool> v) { return v.x && v.y; }

@@ -221,6 +221,8 @@ List<Generic_Bezier> compute_stroke(
     Float32 left_offset, Float32 right_offset,
     Float32 tolerance
 ) {
+    UNUSED(tolerance);
+
     // degree reduction.
     auto outline = List<Generic_Bezier>();
     for(const auto& curve : path) {
@@ -243,9 +245,16 @@ List<Generic_Bezier> compute_stroke(
 
         if(curve.degree == 1) {
             auto bezier = get_bezier_1(curve);
-            auto n = rotate_ccw(normalized(bezier[1] - bezier[0]));
-            left_outline. push_back(generic_line(bezier[0] + left_offset*n,  bezier[1] + left_offset*n));
-            right_outline.push_back(generic_line(bezier[0] - right_offset*n, bezier[1] - right_offset*n));
+            // TODO: zero precision?
+            if(length_squared(bezier[1] - bezier[0]) == 0.0f) {
+                left_outline.push_back(curve);
+                right_outline.push_back(curve);
+            }
+            else {
+                auto n = rotate_ccw(normalized(bezier[1] - bezier[0]));
+                left_outline. push_back(generic_line(bezier[0] + left_offset*n,  bezier[1] + left_offset*n));
+                right_outline.push_back(generic_line(bezier[0] - right_offset*n, bezier[1] - right_offset*n));
+            }
         }
         else if(curve.degree == 2) {
             auto bezier = get_bezier_2(curve);
@@ -428,25 +437,22 @@ List<Boundary_Fragment> find_boundary_fragments(
                     return clamp(t, cut_t0, cut_t1);
                 };
 
-                auto moved = curve;
-                for(auto& point : moved.values) {
-                    point[axis] -= next_pos;
-                }
-
+                // TODO: consider negative zero!
                 // early out if there is no root.
-                auto y0 = evaluate(moved, cut_t0)[axis];
-                auto y1 = evaluate(moved, cut_t1)[axis];
+                auto y0 = evaluate(curve, cut_t0)[axis] - next_pos;
+                auto y1 = evaluate(curve, cut_t1)[axis] - next_pos;
                 if(float_sign(y0) == float_sign(y1)) {
                     return 2.0f;
                 }
 
                 auto t_min = 2.f;
 
-                switch (moved.degree) {
+                switch (curve.degree) {
                     case 1: {
-                        auto bezier = get_bezier_1(moved);
+                        auto bezier = get_bezier_1(curve);
                         auto component_bezier = get_component_bezier(bezier, axis);
                         auto poly = get_poly<Float32>(component_bezier);
+                        poly[0] -= next_pos;
 
                         auto r0 = 2.f;
                         find_roots(poly, r0, zero_tolerance);
@@ -454,9 +460,10 @@ List<Boundary_Fragment> find_boundary_fragments(
                     } break;
 
                     case 2: {
-                        auto bezier = get_bezier_2(moved);
+                        auto bezier = get_bezier_2(curve);
                         auto component_bezier = get_component_bezier(bezier, axis);
                         auto poly = get_poly<Float32>(component_bezier);
+                        poly[0] -= next_pos;
 
                         auto r0 = 2.f, r1 = 2.f;
                         find_roots(poly, r0, r1, zero_tolerance);
@@ -464,22 +471,36 @@ List<Boundary_Fragment> find_boundary_fragments(
                     } break;
 
                     case 3: {
-                        constexpr Uint iter_count = 8;
-
-                        auto bezier = get_bezier_3(moved);
+                        auto bezier = get_bezier_3(curve);
                         auto component_bezier = get_component_bezier(bezier, axis);
-                        auto poly = get_poly<Float32>(component_bezier);
-
+                        auto poly = component_bezier;
                         auto derivative = derive<Float32>(poly);
+                        //auto poly = get_poly<Float32>(component_bezier);
+                        //poly[0] -= next_pos;
+
+                        //auto derivative = derive<Float32>(poly);
 
                         // Newton raphson.
+                        constexpr Uint max_iter_count = 12;
                         auto t = 0.5f*(cut_t0 + cut_t1);
-                        for(auto i : Range<Uint>(iter_count)) {
-                            UNUSED(i);
-                            t -= evaluate(poly, t)/evaluate(derivative, t);
+                        for(auto i : Range<Uint>(max_iter_count)) { UNUSED(i);
+                            auto p = evaluate_casteljau(poly, t) - next_pos;
+                            if(abs(p) <= zero_tolerance) {
+                                break;
+                            }
+
+                            auto dp = evaluate_casteljau(derivative, t);
+                            auto dt = -p/dp;
+                            t = clamp(t + dt, cut_t0, cut_t1);
                         }
 
-                        t_min = clamp_t(t);
+                        // NOTE/TODO: this cannot be outside of the range anymore!
+                        // should be somewhat fine as we ensure that there is a root above.
+                        // but what if it tries to go to another root?
+                        // the other cases could maybe also benefit from the
+                        // "guaranteed root" knowledge.
+
+                        t_min = t;
                     } break;
 
                     default: throw Exception();
@@ -555,9 +576,18 @@ void compute_winding(
         auto normalized_0 = p0 - V2f(fragment.position);
         auto normalized_1 = p1 - V2f(fragment.position);
 
-        // Sort coordinates to make hit testing curve direction independent.
-        auto test_0 = min(normalized_0, normalized_1);
-        auto test_1 = max(normalized_0, normalized_1);
+        // Sort coordinates by y to make hit testing curve direction independent.
+        // In particular: If two consecutive segments end at y = 0.5, only one
+        // should be hit by the ray if they have the same winding, or both if
+        // they have opposite windings. (hit segment joint vs cusp)
+        auto test_0 = normalized_0;
+        auto test_1 = normalized_1;
+        if(p1.y - p0.y < 0.0f) {
+            swap(test_0, test_1);
+        }
+
+        auto ray_0 = min(0.0f, min(normalized_0.x, normalized_1.x));
+        auto ray_1 = max(1.0f, max(normalized_0.x, normalized_1.x));
 
         auto intersect_ray = [=](V2f r0, V2f r1) {
             auto ts = V2f();
@@ -572,12 +602,19 @@ void compute_winding(
             // What is important however is that the path does not contain holes
             // between consecutive curves. (Splitting should be fine: always
             // have t = 0, t = 1 and each t1 is the t0 of another segment.)
-            return all(in_interval_left_inclusive(ts, 0.f, 1.f));
+            auto ray_t = ts[0];
+            auto line_t = ts[1];
+            return in_interval_inclusive(ray_t, 0.0f, 1.0f, zero_tolerance)
+                && in_interval_left_inclusive(line_t, 0.0f, 1.0f, zero_tolerance);
+            //return in_interval_inclusive(ray_t, 0.0f, 1.0f)
+                //&& line_t >= 0 && line_t <= 1.0f - zero_tolerance;
+                //&& in_interval_left_inclusive(line_t, 0.0f, 1.0f);
+            //return all(in_interval_left_inclusive(ts, 0.f, 1.f));
         };
 
         fragment.winding_sign = (Sint32)sign(p1.y - p0.y);
-        fragment.out_mask     = intersect_ray(V2f(1.0f, 0.5f), V2f(0.0f, 0.5f));
-        fragment.sample_mask  = intersect_ray(V2f(0.5f, 0.5f), V2f(0.0f, 0.5f));
+        fragment.out_mask     = intersect_ray(V2f(ray_1, 0.5f), V2f(ray_0, 0.5f));
+        fragment.sample_mask  = intersect_ray(V2f(0.5f,  0.5f), V2f(ray_0, 0.5f));
     }
 }
 
@@ -594,6 +631,7 @@ void sort_boundary_fragments(List<Boundary_Fragment>& fragments) {
 }
 
 auto problem_lines = List<V2s>();
+auto current_path = Uint(-1);
 
 template <typename On_Span, typename On_Pixel>
 void rasterize(
@@ -613,6 +651,7 @@ void rasterize(
             //assert(scan_winding == 0);
             if(scan_winding != 0) {
                 problem_lines.push_back({scan_x, scan_line});
+                printf("problem: %lld %d %d\n", current_path, scan_x, scan_line);
             }
             scan_winding = 0;
             scan_line = fragments[i].y();
@@ -649,6 +688,7 @@ void rasterize(
 
     if(scan_winding != 0) {
         problem_lines.push_back({scan_x, scan_line});
+        printf("problem: %lld %d %d\n", current_path, scan_x, scan_line);
     }
 }
 
@@ -834,7 +874,13 @@ Rect compute_aabb(const List<Generic_Bezier>& path) {
 
 int main() {
 
-    #if 0
+    // setup FP exceptions.
+    auto fp_bits = Uint32(_EM_OVERFLOW | _EM_ZERODIVIDE | _EM_INVALID);
+    _clearfp();
+    auto set_fp_bits_result = _controlfp_s(0, 0, fp_bits);
+    assert(set_fp_bits_result == 0);
+
+    #if 1
     auto path = List<Generic_Bezier> {
         generic_line({10.f, 10.f}, {20.f, 10.f}),
         generic_quadratic({20.f, 10.f}, {23.5f, 15.f}, {30.f, 10.f}),
@@ -938,6 +984,8 @@ int main() {
 
 
     for(auto i : range_of(tiger)) {
+        current_path = i;
+        defer { current_path = Uint(-1); };
         const auto& path = tiger[i];
         if(path.fill.a > 0.f) {
             draw_path(path.path.curves, path.fill);
@@ -947,14 +995,18 @@ int main() {
         }
     }
 
+    draw_path(path, Color());
+
     printf("%lld\n", problem_lines.size());
+    auto saved_problems = problem_lines;
 
     #if 0
     {
-        auto p = tiger[19];
+        auto p = tiger[205];
         const auto& path = p.path.curves;
         auto curve_cuts = find_monotone_segments(path);
         auto fragments = find_boundary_fragments(path, curve_cuts);
+        auto unsorted_fragments = fragments;
         compute_winding(fragments, path);
         sort_boundary_fragments(fragments);
         rasterize(fragments, [](Sint32 x0, Sint32 x1, Sint32 y){}, [](Sint32, Sint32){});
@@ -972,6 +1024,24 @@ int main() {
             );
         }
         printf("\n\n");
+
+        fragments = unsorted_fragments;
+        for(auto i : range_of(fragments)) {
+            auto& fragment = fragments[i];
+
+            auto t0 = fragments[i].t0;
+            auto t1 = 1.f;
+            if(i + 1 < fragments.size() && fragment.curve_index == fragments[i + 1].curve_index) {
+                t1 = fragments[i + 1].t0;
+            }
+
+            // treated as exact.
+            auto p0 = evaluate(path[fragments[i].curve_index], t0);
+            auto p1 = evaluate(path[fragments[i].curve_index], t1);
+            printf("segment((%f, %f), (%f, %f)), ", p0.x, p0.y, p1.x, p1.y);
+        }
+        printf("\n\n");
+
 
         //if(true) return 0;
     }
@@ -1043,6 +1113,7 @@ int main() {
     struct Path_Data {
         Color color;
         Bool  open;
+        List<Boundary_Fragment> fragments;
     };
 
     auto path_datas = List<Path_Data>(tiger.size());
@@ -1051,6 +1122,9 @@ int main() {
         data.color.g = Float32(rand() % 255) / 255.0f;
         data.color.b = Float32(rand() % 255) / 255.0f;
     }
+
+    auto draw_fills   = 0;
+    auto draw_strokes = 0;
 
 
     while(!glfwWindowShouldClose(window)) {
@@ -1081,6 +1155,12 @@ int main() {
         if(mu_begin_window_ex(mui, "Visible Paths", (mu_Rect { 20, 20, 200, 300 }), MU_OPT_NOCLOSE)) {
             defer { mu_end_window(mui); };
 
+            int widths = -1;
+            mu_layout_row(mui, 1, &widths, 0);
+
+            mu_checkbox(mui, "draw fills", &draw_fills);
+            mu_checkbox(mui, "draw strokes", &draw_strokes);
+
             // button: detect hover, open window on click.
             for(auto path_index : visible_paths) {
                 auto id = mu_get_id(mui, &path_index, sizeof(path_index));
@@ -1091,7 +1171,15 @@ int main() {
                     hovered_path = path_index;
                 }
                 if(mui->focus == id && (mui->mouse_pressed & MU_MOUSE_LEFT) != 0) {
-                    path_datas[path_index].open = true;
+                    auto& data = path_datas[path_index];
+                    data.open = true;
+
+                    if(data.fragments.size() == 0) {
+                        const auto& path = tiger[path_index].path.curves;
+                        auto curve_cuts = find_monotone_segments(path);
+                        data.fragments = find_boundary_fragments(path, curve_cuts);
+                        compute_winding(data.fragments, path);
+                    }
                 }
 
                 char buffer[32];
@@ -1187,86 +1275,125 @@ int main() {
         }
 
         {
-            nvgBeginPath(nvg);
-            for(auto line : problem_lines) {
-                nvgMoveTo(nvg, line.x    , line.y);
-                nvgLineTo(nvg, line.x + 1, line.y);
-                nvgLineTo(nvg, line.x + 1, line.y + 1);
-                nvgLineTo(nvg, line.x    , line.y + 1);
-                nvgClosePath(nvg);
+            for(auto line : saved_problems) {
+                auto bl = V2f(line);
+
+                nvgBeginPath(nvg);
+                nvgMoveTo(nvg, screen_rect.min.x, Float32(line.y) + 0.5f);
+                nvgLineTo(nvg, screen_rect.max.x, Float32(line.y) + 0.5f);
+                nvgStrokeWidth(nvg, 1.0f/camera_scale);
+                nvgStrokeColor(nvg, NVGcolor{1.0f, 0.0f, 0.0f, 0.75f});
+                nvgStroke(nvg);
+
+                nvgBeginPath(nvg);
+                nvgRect(nvg, bl.x, bl.y, 1.0f, 1.0f);
+                nvgStrokeWidth(nvg, 3.0f/camera_scale);
+                nvgStrokeColor(nvg, NVGcolor{0.0f, 0.0f, 0.0f, 0.75f});
+                nvgStroke(nvg);
+                nvgStrokeWidth(nvg, 1.0f/camera_scale);
+                nvgStrokeColor(nvg, NVGcolor{1.0f, 0.0f, 0.0f, 0.75f});
+                nvgStroke(nvg);
+
+                nvgBeginPath(nvg);
+                nvgCircle(nvg, bl.x + 0.5f, bl.y + 0.5f, 20.0f/camera_scale);
+                nvgStrokeWidth(nvg, 1.0f/camera_scale);
+                nvgStrokeColor(nvg, NVGcolor{1.0f, 0.0f, 0.0f, 0.75f});
+                nvgStroke(nvg);
             }
-            nvgStrokeColor(nvg, NVGcolor { 0.1f, 0.4f, 0.8f, 1.0f });
-            nvgStrokeWidth(nvg, 3.0f/camera_scale);
-            nvgStroke(nvg);
-            nvgStrokeColor(nvg, NVGcolor { 0.8f, 0.4f, 0.1f, 1.0f });
-            nvgStrokeWidth(nvg, 1.0f/camera_scale);
-            nvgStroke(nvg);
         }
+
+
+        auto nvg_trace_path = [&](const List<Generic_Bezier>& path) {
+            for(const auto& curve : path) {
+                switch(curve.degree) {
+                    case 1: {
+                        nvgMoveTo(nvg, curve[0].x, curve[0].y);
+                        nvgLineTo(nvg, curve[1].x, curve[1].y);
+                    } break;
+                    case 2: {
+                        nvgMoveTo(nvg, curve[0].x, curve[0].y);
+                        nvgQuadTo(nvg, curve[1].x, curve[1].y, curve[2].x, curve[2].y);
+                    } break;
+                    case 3: {
+                        nvgMoveTo(nvg, curve[0].x, curve[0].y);
+                        nvgBezierTo(nvg, curve[1].x, curve[1].y, curve[2].x, curve[2].y, curve[3].x, curve[3].y);
+                    } break;
+                    default: assert(false);
+                }
+            }
+        };
 
         // highlight paths.
         {
+            constexpr auto highlight_color_bright = NVGcolor { 0.7f, 0.8f, 1.0f, 1.0f };
+            constexpr auto highlight_color_dark = NVGcolor { 0.2f, 0.3f, 0.4f, 1.0f };
+
             for(auto path_index : visible_paths) {
                 const auto& path = tiger[path_index];
                 const auto& data = path_datas[path_index];
+
+                auto hovered     = path_index == hovered_path;
+                auto draw_fill   = draw_fills || data.open || hovered;
+                auto draw_stroke = draw_strokes || data.open || hovered;
+
                 nvgBeginPath(nvg);
-                nvgMoveTo(nvg, path.path.curves[0][0].x, path.path.curves[0][0].y);
 
-                for(auto& curve : path.path.curves) {
-                    switch(curve.degree) {
-                        case 1: {
-                            nvgLineTo(nvg, curve[1].x, curve[1].y);
-                        } break;
-                        case 2: {
-                            nvgQuadTo(nvg, curve[1].x, curve[1].y, curve[2].x, curve[2].y);
-                        } break;
-                        case 3: {
-                            nvgBezierTo(nvg, curve[1].x, curve[1].y, curve[2].x, curve[2].y, curve[3].x, curve[3].y);
-                        } break;
-                        default: assert(false);
-                    }
+                if(path.fill.a > 0.0 && draw_fill) {
+                    nvg_trace_path(path.path.curves);
                 }
 
-                const auto highlight_color = NVGcolor { 0.7f, 0.8f, 1.0f, 1.0f };
-
-                auto color = NVGcolor { 1.0f, 0.0f, 1.0f, 0.75f };
-                auto stroke_width = 1.0f;
-
-                if(path_index == hovered_path || data.open) {
-                    color = highlight_color;
-                    stroke_width = 5.0f;
+                if(path.stroke.a > 0.0 && draw_stroke) {
+                    nvg_trace_path(tiger_strokes[path_index]);
                 }
 
-                nvgStrokeColor(nvg, color);
-                nvgStrokeWidth(nvg, stroke_width/camera_scale);
-                nvgStroke(nvg);
-
-                // inner stroke with path color.
-                if(data.open) {
-                    auto inner_color = NVGcolor {
-                        color.r = data.color.r,
-                        color.g = data.color.g,
-                        color.b = data.color.b,
-                        0.75f
-                    };
-                    nvgStrokeColor(nvg, inner_color);
-                    nvgStrokeWidth(nvg, 2.0f/camera_scale);
-                    nvgStroke(nvg);
-                }
-
-                // control point aabb for hovered path.
-                if(path_index == hovered_path) {
+                if(hovered) {
                     auto aabb = path_aabbs[path_index];
                     auto pos = aabb.min;
                     auto size = aabb.max - aabb.min;
-                    nvgBeginPath(nvg);
                     nvgRect(nvg, pos.x, pos.y, size.x, size.y);
 
-                    nvgStrokeColor(nvg, NVGcolor { 0.2f, 0.2f, 0.2f, 1.0f });
+                    nvgStrokeColor(nvg, highlight_color_dark);
                     nvgStrokeWidth(nvg, 5.0f/camera_scale);
                     nvgStroke(nvg);
 
-                    nvgStrokeColor(nvg, highlight_color);
+                    nvgStrokeColor(nvg, highlight_color_bright);
                     nvgStrokeWidth(nvg, 3.0f/camera_scale);
+                    nvgStroke(nvg);
+                }
+                else if(data.open) {
+                    auto bg = highlight_color_dark;
+                    bg.a = 0.75f;
+                    nvgStrokeColor(nvg, bg);
+                    nvgStrokeWidth(nvg, 5.0f/camera_scale);
+                    nvgStroke(nvg);
+
+                    auto fg = NVGcolor();
+                    fg.r = data.color.r,
+                    fg.g = data.color.g,
+                    fg.b = data.color.b,
+                    fg.a = 0.75f;
+                    nvgStrokeColor(nvg, fg);
+                    nvgStrokeWidth(nvg, 3.0f/camera_scale);
+                    nvgStroke(nvg);
+
+                    for(auto& fragment : data.fragments) {
+                        nvgBeginPath(nvg);
+                        nvgRect(nvg, Float32(fragment.position.x), Float32(fragment.position.y), 1.0f, 1.0f);
+                        if(fragment.out_mask && fragment.winding_sign > 0) {
+                            nvgFillColor(nvg, NVGcolor { 0.0f, 1.0f, 0.0f, 0.5f });
+                        }
+                        else if(fragment.out_mask && fragment.winding_sign < 0) {
+                            nvgFillColor(nvg, NVGcolor { 1.0f, 0.0f, 0.0f, 0.5f });
+                        }
+                        else {
+                            nvgFillColor(nvg, NVGcolor { 0.0f, 0.0f, 1.0f, 0.1f });
+                        }
+                        nvgFill(nvg);
+                    }
+                }
+                else if(draw_fill || draw_stroke) {
+                    nvgStrokeColor(nvg, NVGcolor { 1.0f, 0.0f, 1.0f, 0.75f });
+                    nvgStrokeWidth(nvg, 1.0f/camera_scale);
                     nvgStroke(nvg);
                 }
             }

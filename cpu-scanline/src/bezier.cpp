@@ -17,7 +17,11 @@ List<Bezier<V2f, 2>> reduce_degree(const Bezier<V2f, 3>& bezier, Float32 toleran
 
     while(true) {
         auto d_01 = length(0.5f*(-current[0] + 3.f*current[1] - 3.f*current[2] + current[3]));
-        auto t_split = pow(tolerance/(sqrt(3.f)/18.f * d_01), 1.f/3.f);
+        auto t_split = 1.0f;
+        // TODO: zero precision?
+        if(d_01 != 0.0f) {
+            t_split = pow(tolerance/(sqrt(3.f)/18.f * d_01), 1.f/3.f);
+        }
 
         if(t_split < 0.5f) {
             auto left = Bezier<V2f, 3>();
@@ -53,6 +57,12 @@ List<Bezier<V2f, 2>> reduce_degree(const Bezier<V2f, 3>& bezier, Float32 toleran
 Bezier<V2f, 2> offset(const Bezier<V2f, 2>& bezier, Float32 delta, Float32 zero_tolerance) {
     auto derivative = derive<Float32>(bezier);
 
+    // TODO: what to do?
+    // TODO: zero precision?
+    if(length_squared(derivative[0]) == 0.0f || length_squared(derivative[1]) == 0.0f) {
+        return bezier;
+    }
+
     auto n0 = delta*rotate_ccw(normalized(derivative[0]));
     auto p0 = bezier[0] + n0;
     auto c0 = bezier[1] + n0;
@@ -78,14 +88,4 @@ Bezier<V2f, 2> offset(const Bezier<V2f, 2>& bezier, Float32 delta, Float32 zero_
     }
 
     return Bezier<V2f, 2>{ p0, c, p1 };
-
-    #if 0
-
-    // Newton raphson.
-    auto t = 0.5f*(cut_t0 + cut_t1);
-    for(auto i : Range<Uint>(iter_count)) {
-        UNUSED(i);
-        t -= evaluate(poly, t)/evaluate(derivative, t);
-    }
-    #endif
 }

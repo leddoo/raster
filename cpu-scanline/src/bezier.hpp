@@ -71,7 +71,6 @@ T evaluate_casteljau(const Bezier<T, n>& bezier, Scalar t) {
             values[j] = (Scalar(1) - t)*values[j] + t*values[j + 1];
         }
     }
-    auto b = evaluate_bernstein(bezier, t);
     return values[0];
 }
 
