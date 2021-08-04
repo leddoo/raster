@@ -50,7 +50,7 @@ List<Bezier<V2f, 2>> reduce_degree(const Bezier<V2f, 3>& bezier, Float32 toleran
 }
 
 
-Bezier<V2f, 2> offset(const Bezier<V2f, 2>& bezier, Float32 delta, Float32 tolerance) {
+Bezier<V2f, 2> offset(const Bezier<V2f, 2>& bezier, Float32 delta, Float32 zero_tolerance) {
     auto derivative = derive<Float32>(bezier);
 
     auto n0 = delta*rotate_ccw(normalized(derivative[0]));
@@ -61,13 +61,15 @@ Bezier<V2f, 2> offset(const Bezier<V2f, 2>& bezier, Float32 delta, Float32 toler
     auto p1 = bezier[2] + n1;
     auto c1 = bezier[1] + n1;
 
-    auto ts = V2f();
-    if(find_lines_intersection(p0, c0, p1, c1, &ts, tolerance) == false) {
-        // TODO: can this happen?
-        assert(false);
-    }
+    auto c = V2f();
 
-    auto c = lerp(p0, c0, ts[0]);
+    auto ts = V2f();
+    if(find_lines_intersection(p0, c0, p1, c1, &ts, zero_tolerance) == false) {
+        c = 0.5f*(c0 + c1);
+    }
+    else {
+        c = lerp(p0, c0, ts[0]);
+    }
 
     auto a0 = p0 - c;
     auto a1 = p1 - c;

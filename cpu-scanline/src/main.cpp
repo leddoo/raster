@@ -249,8 +249,8 @@ List<Generic_Bezier> compute_stroke(
         }
         else if(curve.degree == 2) {
             auto bezier = get_bezier_2(curve);
-            auto l = offset(bezier, +left_offset, tolerance);
-            auto r = offset(bezier, -right_offset, tolerance);
+            auto l = offset(bezier, +left_offset, zero_tolerance);
+            auto r = offset(bezier, -right_offset, zero_tolerance);
             left_outline. push_back(generic_quadratic(l[0], l[1], l[2]));
             right_outline.push_back(generic_quadratic(r[0], r[1], r[2]));
         }
@@ -646,6 +646,10 @@ void rasterize(
         scan_winding    += delta_out_winding;
         scan_x           = position.x + 1;
     }
+
+    if(scan_winding != 0) {
+        problem_lines.push_back({scan_x, scan_line});
+    }
 }
 
 
@@ -854,6 +858,12 @@ int main() {
         generic_cubic({225, 475}, {150, 475}, {125, 375}, {125, 325}),
     };
 
+    for(auto& curve : path) {
+        for(auto& point : curve.values) {
+            point = 0.5f*point + V2f(+100, 100);
+        }
+    }
+
     path = compute_stroke(path, true, 5.f, 5.f, 0.1f);
     #endif
 
@@ -867,6 +877,10 @@ int main() {
     }
 
 
+    auto scale = 1.0f;
+    tiger_aabb.min = scale*tiger_aabb.min;
+    tiger_aabb.max = scale*tiger_aabb.max;
+
     auto padding    = V2f(20.0f, 20.0f);
     auto offset     = -tiger_aabb.min + padding;
     auto image_size = ceil(tiger_aabb.max - tiger_aabb.min + 2.f*padding);
@@ -874,11 +888,21 @@ int main() {
     for(auto i : range_of(tiger)) {
         for(auto& curve : tiger[i].path.curves) {
             for(auto i : Range<Uint>(curve.degree + 1)) {
-                curve[i] = curve[i] + offset;
+                curve[i] = scale*curve[i] + offset;
             }
         }
-        path_aabbs[i].min = path_aabbs[i].min + offset;
-        path_aabbs[i].max = path_aabbs[i].max + offset;
+        path_aabbs[i].min = scale*path_aabbs[i].min + offset;
+        path_aabbs[i].max = scale*path_aabbs[i].max + offset;
+    }
+
+    auto tiger_strokes = List<List<Generic_Bezier>>(tiger.size());
+    for(auto i : range_of(tiger)) {
+        tiger_strokes[i] = compute_stroke(
+            tiger[i].path.curves,
+            tiger[i].path.closed,
+            tiger[i].stroke_width/2.0f, tiger[i].stroke_width/2.0f,
+            0.0f
+        );
     }
 
     // r, g, b, a.
@@ -913,9 +937,13 @@ int main() {
     };
 
 
-    for(const auto& path : tiger) {
+    for(auto i : range_of(tiger)) {
+        const auto& path = tiger[i];
         if(path.fill.a > 0.f) {
             draw_path(path.path.curves, path.fill);
+        }
+        if(path.stroke.a > 0.f) {
+            draw_path(tiger_strokes[i], path.stroke);
         }
     }
 
