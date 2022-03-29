@@ -880,7 +880,7 @@ int main() {
     auto set_fp_bits_result = _controlfp_s(0, 0, fp_bits);
     assert(set_fp_bits_result == 0);
 
-    #if 1
+    #if 0
     auto path = List<Generic_Bezier> {
         generic_line({10.f, 10.f}, {20.f, 10.f}),
         generic_quadratic({20.f, 10.f}, {23.5f, 15.f}, {30.f, 10.f}),
@@ -995,7 +995,7 @@ int main() {
         }
     }
 
-    draw_path(path, Color());
+    //draw_path(path, Color());
 
     printf("%lld\n", problem_lines.size());
     auto saved_problems = problem_lines;
